@@ -1,0 +1,12 @@
+# Render 블루프린트: 저장소를 Render에 연결하면 게임 + 실시간 중계 서버가 한 번에 뜹니다.
+services:
+  - type: web
+    name: rewind
+    runtime: node
+    plan: free
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    envVars:
+      - key: NODE_VERSION
+        value: "22"

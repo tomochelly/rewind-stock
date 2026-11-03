@@ -1,0 +1,23 @@
+{
+  // Cloudflare Workers 배포: 게임 화면(dist/) + 실시간 중계(/relay, Durable Object). `npm run cf:deploy`
+  "$schema": "node_modules/wrangler/config-schema.json",
+  // 이름이 같은 Worker가 계정에 있으면 덮어쓰니까, GAGETHER와 겹치지 않는 이름을 씀
+  "name": "rewind-stock",
+  "main": "worker/index.js",
+  "compatibility_date": "2026-10-01",
+  // 서브도메인 하나만 이 Worker에 연결(Custom Domain). DNS 레코드 1개와 인증서만 새로 생기고, gagether.wiki 본체와 다른 레코드는 건드리지 않음.
+  // stock 레코드가 이미 있으면 덮어쓰지 않고 배포가 실패함. 도메인을 바꾸려면 pattern만 고치거나 줄을 추가하면 됨.
+  // 주의: "gagether.wiki/*" 같은 route(패턴) 방식은 쓰지 말 것 — 본 사이트 트래픽을 가로챔.
+  "routes": [{ "pattern": "stock.gagether.wiki", "custom_domain": true }],
+  "workers_dev": true, // 예비 주소 https://rewind-stock.<계정>.workers.dev 도 계속 열어 둠
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/relay", "/healthz"]
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "RELAY", "class_name": "RelayChannel" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["RelayChannel"] }]
+}

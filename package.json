@@ -1,0 +1,34 @@
+{
+  "name": "rewind-semis",
+  "private": true,
+  "version": "0.5.0",
+  "type": "module",
+  "description": "되감기 — 2019년부터 반도체 시장을 다시 살아보는 모의투자 게임 (가상 기업, 실제 국면)",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "node server/index.mjs",
+    "test:engine": "node scripts/engine-check.mjs",
+    "build:exe": "node scripts/build-exe.mjs",
+    "cf:dev": "vite build && wrangler dev",
+    "cf:deploy": "vite build && wrangler deploy"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "lightweight-charts": "4.2.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "ws": "^8.22.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.25.12",
+    "postject": "^1.0.0-alpha.6",
+    "vite": "^6.0.0",
+    "wrangler": "^4.157.0"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
