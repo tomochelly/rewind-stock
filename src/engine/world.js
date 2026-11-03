@@ -4,7 +4,7 @@
 import { DAY, T0, kst, dateOf, isTradingDay, nextTradingDay, prevTradingDay, sessionsFor, usDST } from './calendar.js';
 import { rngFor, gauss, pick } from './rng.js';
 import { ANCHORS, BASE_VOL, VOL_WINDOWS, KEYS, FACTORS, NEWS_LIST, COMP_EVENTS, BACKDROP_END, AMP } from './backdrop.js';
-import { ROSTER, ETFS, futureIpos } from './companies.js';
+import { ROSTER, ETFS, futureIpos, pastIpos } from './companies.js';
 import { regimeFor, futureEvent, futureEffect, RUMORS, BROKERS } from './future.js';
 import { BROAD_ANCHORS, BROAD_VOL, BROAD_FROM_SEMI, BROAD_KEYS, THEMES } from './themes.js';
 
@@ -77,6 +77,39 @@ function overlay(arr, i0, m, t1, t2, rev) {
   const N = arr.length;
   for (let i = i0; i < N; i++) { const x = i - i0; arr[i] += m * (1 - Math.exp(-x / t1)) * (rev + (1 - rev) * Math.exp(-x / t2)); }
 }
+// Regular-session path that passes through an intraday extreme (log level xp at fraction at): pumps, gap-and-fades, blow-off tops.
+function peakPath(rng, n, x0, xp, x1, at, sig) {
+  const kp = Math.min(n - 2, Math.max(1, Math.round(at * (n - 1))));
+  const a = bridge(rng, kp, x0, xp, sig), b = bridge(rng, n - 1 - kp, xp, x1, sig);
+  const out = new Float64Array(n); out.set(a.subarray(0, kp)); out.set(b, kp);
+  return out;
+}
+const L1 = Math.log1p;
+const U = (r, a, b) => a + r() * (b - a);
+const tail = (r, a, b) => a * (b / a) ** (r() ** 2); // mostly near a, now and then all the way to b
+const GAP_NEWS = {
+  bio: ['FDA 패스트트랙 지정', '임상 2상 1차 평가지표 충족 발표', '대형 제약사와 기술이전 계약'],
+  ai: ['대형 클라우드 업체와 AI 파트너십 발표', 'AI 데이터센터 공급 계약 발표', '"AI 에이전트" 신사업 진출 발표'],
+  space: ['우주군 위성 발사 계약 수주', 'eVTOL 시험비행 성공 발표'],
+  coin: ['비트코인 대량 매입 계획 발표', '신형 채굴기 대량 도입 발표'],
+  meme: ['커뮤니티에 "숏스퀴즈" 글 폭주', '유명 개인투자자 지분 공개'],
+  power: ['데이터센터 전력 공급 계약 발표', '정부 보조금 대상 선정'],
+  nuc: ['정부 소형원전 실증사업 선정'], quant: ['정부 양자 연구 과제 선정'],
+};
+// One-day company issues: [tag, headline, move from, move to, themes (optional)]. Magnitudes are halved for large caps.
+const ISSUES = {
+  kr: [['공시', '대규모 단일판매·공급계약 체결 공시', 0.08, 0.3], ['공시', '무상증자 결정… 1주당 1주 배정', 0.15, 0.35], ['공시', '자사주 소각 결정', 0.03, 0.08], ['실적', '분기 영업이익 사상 최대… 어닝 서프라이즈', 0.05, 0.18],
+    ['공시', '글로벌 제약사에 기술수출 계약', 0.15, 0.35, ['bio']], ['정책', '정부 정책 수혜 기대감에 급등', 0.06, 0.2], ['공시', '최대주주 변경… 새 주인 맞는다', 0.1, 0.3], ['특징주', '해외 대형 수주 기대감에 강세', 0.06, 0.2],
+    ['공시', '유상증자 결정… 주주배정 방식', -0.25, -0.1], ['공시', '최대주주 지분 블록딜 매각', -0.12, -0.05], ['실적', '분기 적자 전환… 어닝 쇼크', -0.15, -0.05], ['공시', '임상 3상 실패… 주요 지표 미충족', -0.35, -0.2, ['bio']],
+    ['공시', '횡령·배임 혐의 발생 공시', -0.3, -0.12], ['공시', '전환사채(CB) 대규모 발행', -0.12, -0.04], ['특징주', '대표이사 구속 소식에 급락', -0.2, -0.08], ['공시', '주요 고객사와 공급계약 해지', -0.22, -0.08]],
+  us: [['실적', '어닝 서프라이즈 + 가이던스 상향', 0.08, 0.3], ['공시', 'FDA 신약 승인', 0.2, 0.9, ['bio']], ['M&A', '대형사가 인수 제안… 프리미엄 40%', 0.25, 0.6], ['공시', 'S&P 500 지수 편입 확정', 0.05, 0.12],
+    ['공시', '대규모 자사주 매입 발표', 0.03, 0.08], ['계약', '정부 대형 계약 수주', 0.1, 0.4], ['실적', '실적 미스 + 가이던스 하향', -0.3, -0.08], ['공시', 'FDA 승인 거절(CRL)', -0.7, -0.3, ['bio']],
+    ['리포트', '공매도 리포트 "회계 부정" 의혹 제기', -0.4, -0.15], ['조사', 'SEC 조사 착수 보도', -0.25, -0.1], ['인사', 'CEO 돌연 사임', -0.15, -0.05], ['공시', '대규모 유상증자(공모) 발표', -0.35, -0.12]],
+};
+const HALT_REASONS = {
+  kr: ['감사의견 거절', '횡령·배임 혐의 발생', '불성실공시 누적', '자본잠식률 50% 이상', '회생절차 개시 신청'],
+  us: ['파산보호(챕터 11) 신청', '회계 부정 의혹으로 SEC 조사', '감사인 사임과 실적 보고 지연'],
+};
 const deep = (o) => JSON.parse(JSON.stringify(o));
 const COMP_NEWS = COMP_EVENTS.filter((e) => e.text).map((e) => ({ ...e, at: kst(e.at) })).sort((a, b) => a.at - b.at);
 
@@ -93,7 +126,8 @@ export class World {
     this.realPtr = 0;
     this.listeners = new Set();
     this.comp = new Map();
-    [...ROSTER.map((c) => ({ ...c, ipoT: c.ipo ? T0(c.ipo) : null })), ...ETFS].forEach((c) => this.comp.set(c.id, c));
+    this.fates = new Map();
+    [...ROSTER.map((c) => ({ ...c, ipoT: c.ipo ? T0(c.ipo) : null })), ...pastIpos(this.seed).map((c) => ({ ...c })), ...ETFS].forEach((c) => this.comp.set(c.id, c));
     this.ms = { kr: this.initMarket('kr'), us: this.initMarket('us') };
     this.snap = { kr: null, us: null };
     this.realPtr = NEWS_LIST.findIndex((n) => kst(n.at) > this.clock);
@@ -201,7 +235,11 @@ export class World {
   /* ---------- day generation ---------- */
   listedOn(mk, t) {
     const out = [];
-    for (const c of this.comp.values()) if (c.mk === mk && !c.etf && (!c.ipoT || c.ipoT <= t)) out.push(c);
+    for (const c of this.comp.values()) {
+      if (c.mk !== mk || c.etf || (c.ipoT && c.ipoT > t)) continue;
+      const f = this.fate(c); if (f && f.out === 'delist' && t > f.c1) continue; // delisted after its last 정리매매 day
+      out.push(c);
+    }
     return out;
   }
   refreshRoster(t) {
@@ -260,7 +298,7 @@ export class World {
     for (const e of events) if (e.target === 'idx') overlay(LI, e.k, e.mag, e.t1, e.t2, e.rev);
     const idxClose = Math.exp(LI[regB - 1]), bidxClose = Math.exp(LB[regB - 1]);
     // companies
-    const P = {}, V = {}, prevClose = {}, daily = {}, stat = {};
+    const P = {}, V = {}, prevClose = {}, daily = {}, stat = {}, flag = {}, lu = {};
     const base = { semi: { L: LI, prev: Math.log(ms.idx.close), last0: Math.log(ms.idx.last) }, broad: { L: LB, prev: Math.log(ms.bidx.close), last0: Math.log(ms.bidx.last) } };
     const facCache = {}, fac = (name) => (facCache[name] ??= this.factor(name, t));
     const compKeys = new Map(COMP_EVENTS.filter((e) => e.t === t).map((e) => [e.comp, e]));
@@ -274,54 +312,90 @@ export class World {
       const pc = st.close; prevClose[c.id] = pc;
       const B = base[c.base === 'semi' ? 'semi' : 'broad'];
       const ck = compKeys.get(c.id);
+      const stt = this.status(c, t);
+      if (stt && stt.k === 'halt') { // 매매거래 정지: the price is frozen all day
+        const arrP = new Float64Array(N).fill(pc), arrV = new Float32Array(N);
+        P[c.id] = arrP; V[c.id] = arrV; stat[c.id] = this.stats(arrP, arrV, regA, regB); flag[c.id] = 'halt';
+        daily[c.id] = [t, pc, pc, pc, pc, 0]; st.last = pc;
+        if (stt.first) events.push({ t: timeOf(Math.max(0, regA - 60)), k: Math.max(0, regA - 60), mk, tag: '거래정지', text: c.name + ', ' + stt.f.reason + '… 매매거래 정지', major: false, comp: c.id, target: null, mag: 0 });
+        continue;
+      }
+      if (stt && stt.k === 'clr') flag[c.id] = 'clr';
       let themeR = 0; for (const [name, w] of Object.entries(c.th || {})) if (w) themeR += w * fac(name);
       // company-specific moves mean-revert (z = accumulated idiosyncratic drift), so small caps don't compound forever
-      const spk = this.spike(c, t);
+      const spk = this.plan(c, t, ipoToday, stt);
       const z = st.z || 0;
       const idio = c.ivol * AMP * gauss(cr) - 0.012 * z + (spk ? spk.r : 0);
       st.z = z + idio;
       let resR = themeR + (c.drift || 0) + idio + (ck ? ck.r * AMP : 0);
       let resG = 0.4 * themeR + 0.35 * c.ivol * gauss(cr) + (spk ? spk.g : 0) + (ck ? ck.g * AMP : 0);
-      let lo = mk === 'kr' ? pc * 0.7 : 0, hi = mk === 'kr' ? pc * 1.3 : Infinity;
+      let lo = mk === 'kr' && !(stt && stt.k === 'clr') ? pc * 0.7 : 0, hi = mk === 'kr' && !(stt && stt.k === 'clr') ? pc * 1.3 : Infinity; // 정리매매: no price limit
       if (ipoToday) {
         const newRule = mk === 'kr' && t >= T0('2023-06-26');
-        resG = mk === 'kr' ? (newRule ? -0.1 + cr() * 1.6 : -0.1 + cr() * 1.1) : -0.1 + cr() * 0.9;
-        resR = resG + 0.15 * gauss(cr);
+        resG = spk.g; resR = spk.r + 0.02 * gauss(cr);
         if (mk === 'kr') { lo = pc * (newRule ? 0.6 : 0.63); hi = pc * (newRule ? 4 : 2.6); }
         events.push({ t: S[regPos].t0, k: regA, mk, tag: '상장', text: c.name + ' 오늘 상장… 공모가 ' + (mk === 'kr' ? c.price.toLocaleString('ko-KR') + '원' : '$' + c.price), major: true, comp: c.id, target: null, mag: 0 });
       }
-      if (spk && spk.kind === 'spike') { const k = regA + Math.floor(cr() * (regB - regA) * 0.7); events.push({ t: timeOf(k), k, mk, tag: '급등', text: c.name + ', 장중 급등… 뚜렷한 이유 안 보여', major: false, comp: c.id, target: null, mag: 0 }); }
       const X = new Float64Array(N);
       const xStart = ipoToday ? resG : Math.log(st.last) - Math.log(pc) - c.beta * (B.last0 - B.prev);
       let xl = xStart;
       S.forEach((s, si) => {
         let arr;
-        const sig = (s.ext ? 0.5 : 1) * c.ivol * AMP * 0.0207 * (spk ? 2 : 1);
-        if (s.id === 'reg') arr = bridge(cr, s.n, resG, resR, () => sig).subarray(0, s.n);
+        const sig = (s.ext ? 0.5 : 1) * c.ivol * AMP * 0.0207 * (spk ? spk.vol : 1);
+        if (s.id === 'reg') arr = spk && spk.pk != null ? peakPath(cr, s.n, resG, Math.max(resG, resR, spk.pk + resR - spk.r), resR, spk.at, () => sig) : bridge(cr, s.n, resG, resR, () => sig).subarray(0, s.n);
         else if (si < regPos) arr = bridge(cr, s.n, xl, xl + (resG - xl) * (si + 1) / regPos, () => sig).subarray(1);
         else arr = bridge(cr, s.n, xl, resR + c.ivol * 0.3 * gauss(cr), () => sig).subarray(1);
         X.set(arr, s.off);
         xl = arr[s.n - 1];
       });
       if (ipoToday) for (let k = 0; k < regA; k++) X[k] = NaN; // not trading before the listing session
+      // news-driven gap: flat overnight, then the headline hits in the pre-market and the price jumps
+      let newsK = spk && spk.news ? ({ pre: regA, open: regA, peak: 0, at: regA + Math.floor((regB - regA) * (spk.at || 0)), mid: regA + Math.floor((regB - regA) * (spk.at != null ? spk.at * 0.6 : cr() * 0.5)) })[spk.news[2]] : -1;
+      if (spk && spk.step) overlay(X, newsK, spk.step, 18, 1e9, 1); // intraday headline: a fast, lasting step
+      if (spk && spk.pre && regA > 4 && !ipoToday) {
+        const kn = Math.floor(regA * U(cr, 0.35, 0.85)), sg = c.ivol * AMP * 0.0207;
+        X.set(bridge(cr, kn, xStart, xStart, () => sg * 0.4).subarray(0, kn), 0);
+        X.set(bridge(cr, regA - kn, resG * U(cr, 0.6, 0.9), resG, () => sg * 3).subarray(0, regA - kn), kn);
+        newsK = kn;
+      }
       for (const e of events) if (e.comp === c.id && e.target === 'stk') overlay(X, e.k, e.mag, e.t1, e.t2, e.rev);
+      if (ipoToday && spk.news) newsK = Math.max(regA, newsK);
       const arrP = new Float64Array(N), arrV = new Float32Array(N);
-      const Vd = M.volBase * (c.mk === 'kr' ? 50000 / c.price : 60 / c.price) * (0.7 + cr() * 0.6) * dayVolMult * (ipoToday ? 6 : 1) * (spk ? (spk.kind === 'spike' ? 8 : 3) : 1);
+      const Vd = M.volBase * (c.mk === 'kr' ? 50000 / c.price : 60 / c.price) * (0.7 + cr() * 0.6) * dayVolMult * (ipoToday ? 6 : 1) * (spk ? spk.volx : 1);
       let o = 0, h = 0, l = Infinity, cl = pc, rk = 0;
       for (let k = 0; k < N; k++) {
         if (Number.isNaN(X[k])) { arrP[k] = NaN; continue; }
-        let p = Math.exp(Math.log(pc) + c.beta * (B.L[k] - B.prev) + X[k]);
-        p = roundPx(mk, Math.min(hi, Math.max(lo, p)));
-        arrP[k] = p;
+        const p = Math.exp(Math.log(pc) + c.beta * (B.L[k] - B.prev) + X[k]);
+        arrP[k] = roundPx(mk, Math.min(hi, Math.max(lo, p)));
+      }
+      if (spk && spk.pk != null && mk === 'kr' && spk.pk >= 0.3 && newsK === 0) newsK = arrP.findIndex((p, k) => k >= regA && p >= roundPx('kr', pc * 1.3, 'down'));
+      if (spk && spk.news && newsK >= 0) events.push({ t: timeOf(newsK), k: newsK, mk, tag: spk.news[0], text: spk.news[1], major: false, comp: c.id, target: null, mag: 0 });
+      // US limit up-limit down: a 10% move within 5 minutes (20% under $3) pauses trading for 5 minutes; it reopens with a gap
+      const halted = new Uint8Array(N); let anyHalt = false;
+      if (mk === 'us') {
+        let k = regA + 30, nh = 0;
+        while (k < regB) {
+          const ref = arrP[k - 30];
+          if (Math.abs(arrP[k] / ref - 1) >= (ref < 3 ? 0.2 : 0.1)) {
+            const e2 = Math.min(regB, k + 30);
+            for (let j = k + 1; j < e2; j++) { arrP[j] = arrP[k]; halted[j] = 1; } anyHalt = true;
+            if (++nh <= 3 && k < regB - 31) events.push({ t: timeOf(k), k, mk, tag: '거래정지', text: c.name + ', ' + (arrP[k] > ref ? '급등' : '급락') + '으로 5분간 거래정지(LULD)', major: false, comp: c.id, target: null, mag: 0 });
+            k = e2 + 30;
+          } else k++;
+        }
+      }
+      for (let k = 0; k < N; k++) {
+        const p = arrP[k];
+        if (Number.isNaN(p)) continue;
         const inReg = k >= regA && k < regB;
         let v;
         if (inReg) { const x = rk++ / (S[regPos].n - 1); v = Vd * (0.5 + 2.2 * (1 - x) ** 5 + 1.4 * x ** 5) / regW; } else v = (Vd * 0.012) / Math.max(1, N - S[regPos].n);
-        arrV[k] = v * (0.4 + cr() * 1.2);
+        arrV[k] = halted[k] ? 0 : v * (0.4 + cr() * 1.2);
         if (inReg) { if (k === regA) o = p; h = Math.max(h, p); l = Math.min(l, p); cl = p; }
       }
-      if (mk === 'kr' && !ipoToday && cl >= roundPx('kr', pc * 1.3, 'down') ) events.push({ t: S[regPos].t1 - 60, k: regB - 6, mk, tag: '상한가', text: c.name + ' 상한가 마감', major: false, comp: c.id, target: null, mag: 0 });
-      if (mk === 'kr' && !ipoToday && cl <= roundPx('kr', pc * 0.7, 'up')) events.push({ t: S[regPos].t1 - 60, k: regB - 6, mk, tag: '하한가', text: c.name + ' 하한가 마감', major: false, comp: c.id, target: null, mag: 0 });
-      P[c.id] = arrP; V[c.id] = arrV;
+      if (mk === 'kr' && !ipoToday && !(stt && stt.k === 'clr') && cl >= roundPx('kr', pc * 1.3, 'down') ) events.push({ t: S[regPos].t1 - 60, k: regB - 6, mk, tag: '상한가', text: c.name + ' 상한가 마감', major: false, comp: c.id, target: null, mag: 0 });
+      if (mk === 'kr' && !ipoToday && !(stt && stt.k === 'clr') && cl <= roundPx('kr', pc * 0.7, 'up')) events.push({ t: S[regPos].t1 - 60, k: regB - 6, mk, tag: '하한가', text: c.name + ' 하한가 마감', major: false, comp: c.id, target: null, mag: 0 });
+      P[c.id] = arrP; V[c.id] = arrV; if (anyHalt) lu[c.id] = halted;
       stat[c.id] = this.stats(arrP, arrV, regA, regB);
       daily[c.id] = [t, o, h, l, cl, Math.round(stat[c.id].cv[N - 1])];
       st.close = cl; st.last = arrP[N - 1];
@@ -361,7 +435,7 @@ export class World {
     ms.bidx.close = bidxClose; ms.bidx.last = Math.exp(LB[N - 1]);
     ms.next = nT;
     events.sort((a, b) => a.t - b.t);
-    const day = { mk, t, S, N, regA, regB, P, V, stat, prevClose, daily, startT: S[0].t0, endT: S[S.length - 1].t1, pushed: false, skB };
+    const day = { mk, t, S, N, regA, regB, P, V, stat, prevClose, daily, flag, lu, startT: S[0].t0, endT: S[S.length - 1].t1, pushed: false, skB };
     days.push(day);
     if (days.length > 2) days.shift();
     for (const e of events) if (e.t > this.clock - 1) this.queue(e); // skip anything before the clock (only on reload)
@@ -378,15 +452,165 @@ export class World {
     }
     return { cv, hi, lo };
   }
-  // Small caps occasionally rip for no clear reason; the next day either follows through or fades.
+  // Delisting / long trading halts, decided once per (seed, stock): 거래정지 → 상장폐지 확정 → 정리매매(가격제한폭 없음) or 거래재개.
+  fate(c) {
+    if (this.fates.has(c.id)) return this.fates.get(c.id);
+    let f = null;
+    const r = rngFor(this.seed, 'fate', c.id), kr = c.mk === 'kr';
+    if (!c.etf && c.risky && r() < (kr ? 0.2 : c.micro ? 0.4 : 0.15)) {
+      const from = Math.max(T0('2019-09-02'), (c.ipoT || 0) + 150 * DAY), to = T0('2029-12-28');
+      if (from < to) {
+        let h0 = from + Math.floor(r() * ((to - from) / DAY)) * DAY; while (!isTradingDay(c.mk, h0)) h0 += DAY;
+        const out = r() < 0.6 ? 'delist' : 'resume';
+        const nH = out === 'delist' ? (kr ? 6 + Math.floor(r() * 15) : 1 + Math.floor(r() * 3)) : (kr ? 3 + Math.floor(r() * 12) : 1 + Math.floor(r() * 2));
+        let h1 = h0; for (let i = 1; i < nH; i++) h1 = nextTradingDay(c.mk, h1);
+        f = { h0, h1, out, reason: pick(r, HALT_REASONS[c.mk]), c0: nextTradingDay(c.mk, h1) };
+        if (out === 'delist') { const nC = kr ? 7 : 3 + Math.floor(r() * 3); let c1 = f.c0; for (let i = 1; i < nC; i++) c1 = nextTradingDay(c.mk, c1); f.c1 = c1; f.nC = nC; }
+      }
+    }
+    this.fates.set(c.id, f);
+    return f;
+  }
+  status(c, t) {
+    const f = this.fate(c); if (!f) return null;
+    if (t >= f.h0 && t <= f.h1) return { k: 'halt', first: t === f.h0, f };
+    if (f.out === 'delist' && t >= f.c0 && t <= f.c1) { let i = 0; for (let d = f.c0; d < t; d = nextTradingDay(c.mk, d)) i++; return { k: 'clr', i, f }; }
+    if (f.out === 'resume' && t === f.c0) return { k: 'resume', f };
+    return null;
+  }
+  // Today's special move for a stock (or null): 정리매매/거래재개 > 상장 첫날 > 급등주 에피소드 > 기업 이슈 > 상장 직후 흐름
+  plan(c, t, ipoToday, stt) {
+    const n = c.name, kr = c.mk === 'kr';
+    if (stt && stt.k === 'clr') {
+      const r = rngFor(this.seed, 'clr', c.id, t), last = stt.i === stt.f.nC - 1;
+      if (stt.i === 0) {
+        const g = L1(-U(r, 0.7, 0.9));
+        return { kind: 'clr', g, pk: g + L1(tail(r, 0.3, 3)), at: U(r, 0.2, 0.8), r: g + L1(U(r, -0.4, 0.5)), vol: 5, volx: 40,
+          news: ['상장폐지', n + (kr ? ' 상장폐지 확정… 오늘부터 정리매매(7거래일, 가격제한폭 없음)' : ' 상장폐지 확정… 장외(OTC) 이전 전 마지막 거래'), 'pre'] };
+      }
+      // after day one it mostly keeps melting; now and then an intraday "beam" that gives most of it back by the close
+      const beam = r() < 0.35, pkp = tail(r, 0.3, 3);
+      return { kind: 'clr', g: L1(U(r, -0.35, 0.05)), pk: beam ? L1(pkp) : null, at: U(r, 0.1, 0.9), r: beam ? L1(U(r, -0.4, 0.4)) : L1(U(r, -0.55, 0.1)), vol: 5, volx: 25,
+        news: beam ? ['상폐빔', n + ', 정리매매 중 장중 +' + Math.round(pkp * 100) + '%… "상폐빔" 떴다', 'at'] : last ? ['상장폐지', n + ' 정리매매 마지막 날… 내일 상장폐지', 'pre'] : null };
+    }
+    if (stt && stt.k === 'resume') {
+      const r = rngFor(this.seed, 'resume', c.id), bad = r() < 0.65;
+      const g = bad ? L1(-U(r, kr ? 0.3 : 0.2, kr ? 0.4 : 0.6)) : L1(U(r, -0.1, 0.2));
+      return { kind: 'resume', g, r: bad ? g + L1(U(r, -0.1, 0.05)) : L1(U(r, -0.15, 0.3)), vol: 3, volx: 20, news: ['거래재개', n + ' 거래 재개… ' + (bad ? '매도 물량 쏟아져' : '상장 유지에 안도'), 'open'] };
+    }
+    if (ipoToday) return this.ipoPlan(c, t);
+    const run = this.spike(c, t); if (run) return run;
+    const iss = this.issue(c, t); if (iss) return iss;
+    if (c.ipoT && t > c.ipoT && t - c.ipoT < 25 * DAY) { const r = rngFor(this.seed, 'postipo', c.id, t); return { kind: 'postipo', g: L1(U(r, -0.03, 0.02)), r: L1(U(r, -0.06, 0.045)), vol: 1.6, volx: 2.5 }; }
+    return null;
+  }
+  // 상장 첫날: KR 2023.06.26부터 공모가 60~400%(따따블), 그 전엔 시초가 90~200% 뒤 ±30%(따상). US는 가격제한 없음.
+  ipoPlan(c, t) {
+    const r = rngFor(this.seed, 'ipo', c.id), u = r(), n = c.name;
+    if (c.mk === 'kr' && t >= T0('2023-06-26')) {
+      if (u < 0.25) return { kind: 'ipo', g: L1(U(r, 1.5, 3)), pk: Math.log(4), at: U(r, 0, 0.3), r: r() < 0.3 ? Math.log(4) : L1(U(r, 1, 2.6)), vol: 2, volx: 1, news: ['상장', n + ', 상장 첫날 "따따블"… 공모가 4배 터치', 'peak'] };
+      if (u < 0.6) { const g = L1(U(r, 0.5, 1.5)); return { kind: 'ipo', g, pk: g + L1(U(r, 0.1, 0.6)), at: U(r, 0, 0.2), r: L1(U(r, 0.2, 1.5)), vol: 2, volx: 1 }; }
+      return { kind: 'ipo', g: L1(U(r, -0.2, 0.4)), r: L1(U(r, -0.35, 0.3)), vol: 1.5, volx: 1 };
+    }
+    if (c.mk === 'kr') {
+      if (u < 0.15) return { kind: 'ipo', g: Math.log(2), pk: Math.log(2.6), at: U(r, 0, 0.1), r: Math.log(2.6), vol: 1, volx: 1, news: ['상장', n + ', 상장 첫날 "따상"… 시초가 2배에 상한가', 'peak'] };
+      const g = L1(U(r, -0.1, 1)); return { kind: 'ipo', g, r: g + L1(U(r, -0.3, 0.3)), vol: 1.5, volx: 1 };
+    }
+    if (u < 0.12) { const g = L1(U(r, 0.6, 2)); return { kind: 'ipo', g, pk: g + L1(U(r, 0.1, 0.8)), at: U(r, 0, 0.4), r: L1(U(r, 0.3, 2)), vol: 2.5, volx: 1, news: ['상장', n + ', 데뷔 첫날 공모가 대비 폭등… "IPO 대박"', 'peak'] }; }
+    if (u < 0.6) { const g = L1(U(r, 0, 0.5)); return { kind: 'ipo', g, r: g + L1(U(r, -0.2, 0.3)), vol: 1.5, volx: 1 }; }
+    const g = L1(U(r, -0.15, 0.15)); return { kind: 'ipo', g, r: g + L1(U(r, -0.25, 0.1)), vol: 1.5, volx: 1 };
+  }
+  // 기업 이슈: 공시·실적·M&A·임상·스캔들. 70%는 장 전에 나와 갭으로, 나머지는 장중에 터져 계단처럼 움직여요.
+  issue(c, t) {
+    const r = rngFor(this.seed, 'iss', c.id, t);
+    if (r() >= (c.small ? 0.005 : 0.0025)) return null;
+    const list = ISSUES[c.mk].filter((x) => !x[4] || x[4].includes(c.theme));
+    const it = pick(r, list), m = U(r, it[2], it[3]) * (c.small ? 1 : 0.45);
+    const text = c.name + ', ' + it[1];
+    if (r() < 0.7) return { kind: 'issue', g: L1(m * U(r, 0.6, 1)), r: L1(m), vol: 1.8, volx: 6, pre: true, news: [it[0], text, 'pre'] };
+    return { kind: 'issue', g: 0, r: 0, step: L1(m), at: U(r, 0.1, 0.8), vol: 1.6, volx: 5, news: [it[0], text, 'at'] };
+  }
+  isHalted(id) {
+    const inst = this.instrument(id); if (!inst) return false;
+    const day = this.curDay(inst.mk); if (!day || !day.flag) return false;
+    if (day.flag[id] === 'halt') return true;
+    const h = day.lu && day.lu[id]; if (!h) return false;
+    const k = this.indexIn(day, this.clock); return k >= 0 && h[k] === 1;
+  }
+  statusOf(id) { // 'halt' | 'clr' | 'luld' | null, for badges
+    const inst = this.instrument(id); if (!inst) return null;
+    const day = this.curDay(inst.mk); if (!day || !day.flag) return null;
+    if (day.flag[id]) return day.flag[id];
+    return this.isHalted(id) ? 'luld' : null;
+  }
+  isDelisted(id) {
+    const c = this.comp.get(id); if (!c || c.etf) return false;
+    const f = this.fate(c); return !!(f && f.out === 'delist' && dateOf(this.clock) > f.c1);
+  }
+  // Small caps run in episodes that last a few trading days. Every day is rebuilt from (seed, stock, start day), so it stays deterministic.
+  // KR: 단발 급등 / 상한가 직행과 연상 / 상한가 찍고 풀림 (가격제한폭 ±30%가 모양을 잘라 줘요).
+  // US: 뉴스 갭상승 후 밀림·음전 / 재료 없는 펌프 앤 덤프 / 며칠짜리 숏스퀴즈와 블로오프 / 급등 뒤 유상증자. 마이크로캡은 몇백 %까지.
   spike(c, t) {
     if (!c.small) return null;
-    const p = c.mk === 'kr' ? 0.006 : 0.005, kr = c.mk === 'kr';
-    const r0 = rngFor(this.seed, 'spk', c.id, t);
-    if (r0() < p) { const rr = kr ? 0.12 + r0() * 0.2 : 0.2 + r0() * 0.5; return { kind: 'spike', r: rr, g: rr * 0.25 }; }
-    const tp = prevTradingDay(c.mk, t), r1 = rngFor(this.seed, 'spk', c.id, tp);
-    if (r1() < p && (!c.ipoT || c.ipoT < tp)) { const r2 = rngFor(this.seed, 'spk2', c.id, t); return r2() < 0.4 ? { kind: 'follow', r: r2() * 0.15, g: 0.04 } : { kind: 'fade', r: -(0.08 + r2() * 0.2), g: -0.04 }; }
+    const p = c.mk === 'kr' ? 0.03 : c.micro ? 0.012 : 0.004;
+    let d = t;
+    for (let off = 0; off < 8; off++) {
+      if (off) d = prevTradingDay(c.mk, d);
+      if (c.ipoT && d <= c.ipoT) break;
+      if (rngFor(this.seed, 'spk', c.id, d)() >= p) continue;
+      const ep = this.episode(c, d);
+      if (off < ep.length) { const day = ep[off]; if (day.pk != null) day.pk = Math.max(day.pk, day.g + 0.02, day.r + 0.02); return day; }
+    }
     return null;
+  }
+  episode(c, s) {
+    const r = rngFor(this.seed, 'ep', c.id, s), n = c.name, u = r(), days = [];
+    const D = (o) => ({ kind: 'run', vol: 2, volx: 6, g: 0, ...o });
+    if (c.mk === 'kr') {
+      if (u < 0.55) { // 단발 급등, 다음 날 추격 또는 되돌림
+        const x = U(r, 0.12, 0.3);
+        days.push(D({ kind: 'spike', r: L1(x), g: L1(x * U(r, 0.1, 0.4)), volx: 8, news: ['급등', n + ', 장중 급등… 뚜렷한 이유 안 보여', 'mid'] }));
+        days.push(r() < 0.4 ? D({ r: L1(U(r, 0, 0.15)), g: 0.04, volx: 3 }) : D({ r: L1(-U(r, 0.08, 0.2)), g: -0.04, volx: 3 }));
+      } else if (u < 0.8) { // 상한가 직행, 가끔 연상
+        let k = 1; while (k < 4 && r() < 0.35) k++;
+        for (let i = 0; i < k; i++) days.push(D({ r: 0.35, g: i && r() < 0.45 ? 0.35 : L1(U(r, 0.03, 0.15)), vol: 1.5, volx: i ? 4 : 7, news: i ? null : ['급등', n + ', 테마 엮이며 상한가 직행', 'open'] }));
+        days.push(D({ g: L1(U(r, -0.05, 0.12)), pk: L1(U(r, 0.05, 0.2)), at: U(r, 0, 0.1), r: L1(-U(r, 0.08, 0.25)), volx: 6 }));
+      } else { // 상한가 찍고 풀림: 장대 윗꼬리
+        days.push(D({ kind: 'spike', g: L1(U(r, 0.02, 0.1)), pk: 0.35, at: U(r, 0.1, 0.5), r: L1(U(r, -0.03, 0.12)), volx: 9, news: ['급등', n + ', 상한가 찍고 밀려… 장대 윗꼬리', 'peak'] }));
+        days.push(D({ r: L1(-U(r, 0, 0.12)), volx: 3 }));
+      }
+      return days;
+    }
+    const big = c.micro ? 1 : 0.35; // ordinary small caps run, micro caps go parabolic
+    const w = c.micro ? [0.4, 0.75] : [0.5, 0.7];
+    if (u < w[0]) { // 뉴스 갭상승: 프리마켓에 뜨고, 장 초반 고점 후 밀리거나 음전
+      const gp = tail(r, 0.3, 0.3 + 3.2 * big), v = r();
+      const close = v < 0.18 ? U(r, -0.3, -0.02) : v < 0.6 ? gp * U(r, 0.1, 0.6) : gp * U(r, 0.7, 1.4);
+      const what = pick(r, GAP_NEWS[c.theme] || ['대형 계약 수주 발표']);
+      days.push(D({ g: L1(gp * U(r, 0.85, 1)), pk: L1(gp) + L1(U(r, 0.05, 0.7)), at: U(r, 0, 0.12), r: L1(close), vol: 3, volx: 30, pre: true, news: ['급등', n + ', ' + what + '… 프리마켓 ' + Math.round(gp * 100) + '% 급등', 'pre'] }));
+      const v2 = r();
+      if (v2 < 0.3) { const g = L1(-U(r, 0.2, 0.45)); days.push(D({ g, r: g + L1(U(r, -0.15, 0.05)), vol: 2.5, volx: 20, pre: true, news: ['공시', n + ', 급등 직후 유상증자(공모) 발표… 주가 급락', 'pre'] })); }
+      else if (v2 < 0.55) days.push(D({ g: L1(U(r, 0, 0.2)), pk: L1(U(r, 0.2, 0.2 + big)), at: U(r, 0.1, 0.6), r: L1(U(r, -0.2, 0.6)), vol: 3, volx: 20 }));
+      else days.push(D({ g: L1(-U(r, 0, 0.15)), r: L1(-U(r, 0.1, 0.35)), volx: 8 }));
+      days.push(D({ r: L1(-U(r, 0.03, 0.2)), volx: 3 }));
+    } else if (u < w[1]) { // 펌프 앤 덤프: 재료 없이 장중 수직 상승, 거래정지 반복, 고점 대비 반토막 이상
+      const pp = tail(r, 0.8 * (0.4 + 0.6 * big), 0.8 + 4.2 * big);
+      const close = r() < 0.35 ? U(r, -0.35, -0.03) : pp * U(r, 0.05, 0.45);
+      days.push(D({ kind: 'spike', g: L1(U(r, -0.02, 0.08)), pk: L1(pp), at: U(r, 0.15, 0.7), r: L1(close), vol: 3.5, volx: 40, news: ['급등', n + ', 뚜렷한 재료 없이 수직 상승… 거래량 폭발', 'mid'] }));
+      days.push(D({ g: L1(-U(r, 0.05, 0.3)), r: L1(-U(r, 0.15, 0.5)), vol: 2, volx: 10 }));
+      days.push(D({ r: L1(-U(r, 0, 0.2)), volx: 3 }));
+    } else { // 숏스퀴즈: 며칠 연속 급등 → 블로오프(장중 몇 배 → 급락) → 며칠 동안 녹음
+      const k = 2 + Math.floor(r() * 3);
+      for (let i = 0; i < k; i++) {
+        const x = U(r, 0.15, 0.7) * (0.4 + 0.6 * big);
+        days.push(D({ g: L1(x * U(r, 0.2, 0.6)), pk: L1(x * U(r, 1.1, 1.6)), at: U(r, 0.3, 0.95), r: L1(x), vol: 2.5, volx: 15 + i * 10, news: i ? null : ['급등', n + ', 공매도 비중 높아… 숏스퀴즈 기대감 확산', 'mid'] }));
+      }
+      const b = tail(r, 0.6 + 0.4 * big, 0.6 + 2.4 * big);
+      days.push(D({ g: L1(U(r, 0.1, 0.5)), pk: L1(b), at: U(r, 0.05, 0.5), r: r() < 0.35 ? L1(-U(r, 0.05, 0.3)) : L1(b * U(r, 0.05, 0.4)), vol: 4, volx: 60, news: ['급등', n + ', 며칠째 폭등… 옵션 거래 사상 최대', 'open'] }));
+      const f = 2 + Math.floor(r() * 2);
+      for (let i = 0; i < f; i++) days.push(D({ g: L1(-U(r, 0.05, 0.25)), r: L1(-U(r, 0.15, 0.4)), volx: 15 - i * 4 }));
+    }
+    return days;
   }
   pushHist(day) {
     if (day.pushed) return;
@@ -630,6 +854,12 @@ export class World {
     for (const [id, rows] of Object.entries(o.hist || {})) w.hist[id] = rows.map((r) => (r.length === 2 ? [r[0], r[1], r[1], r[1], r[1], 0] : [r[0], r[1], r[2], r[3], r[4], r[5] * 1000]));
     w.newsLog = o.newsLog || [];
     w.refreshRoster(o.clock);
+    // saves from before a roster update keep their own roster: drop companies that should already be trading but never were
+    for (const c of [...w.comp.values()]) {
+      if (c.etf || c.future) continue;
+      const known = (o.msNow && o.msNow[c.mk] && o.msNow[c.mk].comp && c.id in o.msNow[c.mk].comp) || (o.snap && o.snap[c.mk] && c.id in o.snap[c.mk].comp) || (o.hist && c.id in o.hist);
+      if (!known && (!c.ipoT || c.ipoT < dateOf(o.clock))) w.comp.delete(c.id);
+    }
     w.clock = o.clock;
     w.newsUpto = o.clock;
     w.realPtr = NEWS_LIST.findIndex((n) => kst(n.at) > o.clock); if (w.realPtr < 0) w.realPtr = NEWS_LIST.length;

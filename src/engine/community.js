@@ -16,13 +16,15 @@ const T = {
   idxDown: ['오늘 {i} 왜 이럼', '파란불 보기 싫어서 앱 지움', '이 정도면 바닥 아님?', '공포에 사라 했지 지금이 공포임', '{i} 또 빠지네 그냥 쉬는 것도 투자', '계좌 녹는 중... 다들 버티냐'],
   idxFlat: ['오늘 장 지루하네', '{i} 횡보 언제 끝남', '관망합니다', '거래량 없는 거 보니 다들 눈치보는 중'],
   news: ['방금 뉴스 봤냐 "{h}"', '이거 호재임 악재임? "{h}"', '"{h}" 이거 이미 선반영 아님?', '뉴스 나오기 전에 누가 미리 샀네 ㅋㅋ', '"{h}" 이거 크다', '"{h}" 찌라시인 듯 거르셈'],
-  spike: ['{n} 상한가 문 닫나요?', '{n} 또 상따 각?', '{n} VI 걸렸네 ㄷㄷ', '{n} 작전 아님? 조심해라', '{n} 테마 붙은 듯'],
+  spike: ['{n} 상한가 문 닫나요?', '{n} 또 상따 각?', '{n} VI 걸렸네 ㄷㄷ', '{n} 작전 아님? 조심해라', '{n} 테마 붙은 듯', '{n} 점상 가냐 이거', '{n} 내일 시초가 갭 얼마 뜰까'],
+  spikeUs: ['{n} 몇 % 간 거임 ㄷㄷ', '{n} 거래정지 또 걸림 ㅋㅋ', '{n} 고점에 물렸다… 음전 실화냐', '{n} 숏스퀴즈 가즈아', '{n} 잡주는 짧게 먹고 나와야 함', '{n} 프리장에서 이미 다 올랐네', '{n} 이거 내일 유증 각 아님?'],
+  delist: ['{n} 정리매매 들어간 사람 있냐', '{n} 상폐빔 타는 사람 용자다', '{n} 물린 사람들 힘내라…', '정리매매는 도박이다 진짜', '{n} 거래정지 풀리긴 하냐'],
   fx: ['환율 {fx}원 실화냐 미장 들어가기 무섭네', '환차익 개꿀ㅋㅋ', '달러 지금 사두는 게 맞냐', '환율 때문에 수익 다 까먹음'],
   lev: ['레버 3배 들어간 사람 손', '인버스 산 사람 지금 웃고 있냐', '레버리지는 장기 보유하면 녹는다고 몇 번 말함', '불 3X 탈출 성공했다 ㅋㅋ'],
   chat: ['점심 뭐 먹지 (주식 얘기 아님)', '오늘도 관망', '현금도 종목이다', '단타 그만해야지 하면서 또 함', '형님들 요즘 뭐 사심?', '신용 쓰는 사람들 조심해라', '장기투자 3일째', '수익률 인증하면 다들 고수더라', '물타기 하다가 바다 됨', '이번 달 월급 전부 넣었다'],
   ext: ['프리장에서 {n} 미쳤네', '애프터에서 다 빠지는 거 뭐임', '시간외 거래량 보니 내일 갭 뜰 듯'],
 };
-const TAG = { upBig: '잡담', upMid: '잡담', downBig: '잡담', downMid: '잡담', idxUp: '잡담', idxDown: '잡담', idxFlat: '잡담', news: '뉴스', spike: '정보', fx: '질문', lev: '인증', chat: '잡담', ext: '정보' };
+const TAG = { upBig: '잡담', upMid: '잡담', downBig: '잡담', downMid: '잡담', idxUp: '잡담', idxDown: '잡담', idxFlat: '잡담', news: '뉴스', spike: '정보', spikeUs: '정보', delist: '정보', fx: '질문', lev: '인증', chat: '잡담', ext: '정보' };
 
 export function newCommunity(seed) { return { r: mulberry32((Number.parseInt(String(seed), 36) || 7) ^ 0x5bd1e995), last: null, posts: [] }; }
 
@@ -34,7 +36,7 @@ export function communityTick(world, cs, t0, t1) {
   for (const mk of ['kr', 'us']) {
     const st = world.marketState(mk), open = st.open;
     const recent = world.newsLog.slice(-8).filter((e) => e.t > t1 - 3 * 3600 && (e.mk === mk || e.mk === 'all'));
-    const heat = 1 + recent.filter((e) => e.major).length * 2 + recent.filter((e) => e.tag === '급등' || e.tag === '상한가').length;
+    const heat = 1 + recent.filter((e) => e.major).length * 2 + recent.filter((e) => ['급등', '상한가', '상폐빔', '거래정지'].includes(e.tag)).length;
     const rate = (open ? 1 / 420 : 1 / 2400) * heat; // posts per market-second
     let n = Math.min(2, Math.floor(span * rate + r()));
     while (n-- > 0) {
@@ -63,14 +65,17 @@ function makePost(world, mk, r, recent, ext) {
     kind = m.q.chg > 0.06 ? 'upBig' : m.q.chg > 0.01 ? 'upMid' : m.q.chg < -0.06 ? 'downBig' : m.q.chg < -0.01 ? 'downMid' : 'chat';
   } else if (u < 0.55) kind = bq.chg > 0.012 ? 'idxUp' : bq.chg < -0.012 ? 'idxDown' : 'idxFlat';
   else if (u < 0.7 && recent.length) kind = 'news';
-  else if (u < 0.78) { const sp = recent.find((e) => e.tag === '급등' || e.tag === '상한가'); if (sp) { kind = 'spike'; comp = sp.comp; name = world.instrument(sp.comp)?.name || ''; } else kind = 'chat'; }
+  else if (u < 0.78) {
+    const sp = recent.find((e) => ['급등', '상한가', '거래정지', '상장폐지', '상폐빔'].includes(e.tag) && e.comp);
+    if (sp) { kind = ['상장폐지', '상폐빔'].includes(sp.tag) || (sp.tag === '거래정지' && sp.mk === 'kr') ? 'delist' : mk === 'us' ? 'spikeUs' : 'spike'; comp = sp.comp; name = world.instrument(sp.comp)?.name || ''; } else kind = 'chat';
+  }
   else if (u < 0.84) kind = mk === 'us' ? 'fx' : 'lev';
   else if (u < 0.88 && ext && movers.length) { kind = 'ext'; name = movers[0].c.name; comp = movers[0].c.id; }
   else kind = 'chat';
   let text = pick(r, T[kind]);
   if (kind === 'news') { const e = pick(r, recent); text = text.replace('{h}', e.text.length > 28 ? e.text.slice(0, 28) + '…' : e.text); }
   text = text.replace('{n}', name).replace('{p}', p.toFixed(1)).replace('{i}', MARKETS[mk].bidxName).replace('{fx}', Math.round(fx).toLocaleString('ko-KR'));
-  const hot = kind === 'upBig' || kind === 'downBig' || kind === 'spike';
+  const hot = kind === 'upBig' || kind === 'downBig' || kind === 'spike' || kind === 'spikeUs' || kind === 'delist';
   return {
     mk, board: BOARD[mk], tag: TAG[kind], text, comp,
     nick: r() < 0.55 ? anon(r) : pick(r, NICKS),

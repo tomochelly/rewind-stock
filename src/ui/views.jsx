@@ -74,34 +74,110 @@ export function ClockBar({ world, settings, speed, setSpeed, onSkip, onSettings,
 }
 
 /* ---------------- Market list ---------------- */
-const SORTS = [['turnover', '거래대금'], ['up', '상승'], ['down', '하락'], ['name', '이름']];
+// Rows never move by themselves: "내 순서" is a saved order you rearrange by dragging the ⋮⋮ handle (or arrow keys on it).
+// The other sorts are snapshots taken when you tap them; tap the active one again to re-sort with the latest numbers.
+const SORTS = [['mine', '내 순서'], ['turnover', '거래대금'], ['up', '상승'], ['down', '하락'], ['name', '이름']];
+const ORDER_KEY = 'rw-order';
+const loadOrder = () => { try { const v = JSON.parse(localStorage.getItem(ORDER_KEY) || '[]'); return Array.isArray(v) ? v : []; } catch (e) { return []; } };
+const saveOrder = (o) => { try { localStorage.setItem(ORDER_KEY, JSON.stringify(o)); } catch (e) { /* storage unavailable */ } };
+const byOrder = (rows, ids) => { const pos = new Map(ids.map((id, i) => [id, i])); return rows.map((r, i) => [r, pos.has(r.c.id) ? pos.get(r.c.id) : 1e6 + i]).sort((a, b) => a[1] - b[1]).map((x) => x[0]); };
+const scrollParent = (el) => { for (let e = el && el.parentElement; e; e = e.parentElement) { const o = getComputedStyle(e).overflowY; if ((o === 'auto' || o === 'scroll') && e.scrollHeight > e.clientHeight) return e; } return null; };
+
+function DragList({ rows, row, sortable, onMove }) {
+  const ul = useRef(null), st = useRef(null);
+  const [live, setLive] = useState(null); // ids in their dragged order while a drag is running
+  const ids = rows.map((r) => r.c.id);
+  const shown = live ? byOrder(rows, live) : rows;
+  const end = () => { const d = st.current; st.current = null; cancelAnimationFrame(d?.raf || 0); if (d && d.ids.join() !== ids.join()) onMove(d.ids); setLive(null); };
+  const down = (e, id) => {
+    if (e.button != null && e.button !== 0) return;
+    e.preventDefault();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    const sp = scrollParent(ul.current);
+    st.current = { id, ids: ids.slice(), y: e.clientY, x: e.clientX, sp, raf: 0 };
+    const tickScroll = () => { // keep scrolling while the finger rests near an edge
+      const d = st.current; if (!d) return;
+      const top = d.sp ? d.sp.getBoundingClientRect().top : 0, bot = d.sp ? d.sp.getBoundingClientRect().bottom : window.innerHeight;
+      const v = d.y < top + 56 ? -8 : d.y > bot - 56 ? 8 : 0;
+      if (v) { if (d.sp) d.sp.scrollTop += v; else window.scrollBy(0, v); retarget(); }
+      d.raf = requestAnimationFrame(tickScroll);
+    };
+    st.current.raf = requestAnimationFrame(tickScroll);
+    setLive(ids.slice());
+  };
+  const retarget = () => {
+    const d = st.current; if (!d) return;
+    const el = document.elementFromPoint(d.x, d.y), li = el && el.closest('li[data-id]');
+    if (!li || !ul.current.contains(li) || li.dataset.id === d.id) return;
+    const to = d.ids.indexOf(li.dataset.id), from = d.ids.indexOf(d.id);
+    if (to < 0) return;
+    d.ids.splice(from, 1); d.ids.splice(to, 0, d.id); setLive(d.ids.slice());
+  };
+  const move = (e) => { const d = st.current; if (!d) return; d.x = e.clientX; d.y = e.clientY; retarget(); };
+  const key = (e, id) => {
+    const i = ids.indexOf(id), j = e.key === 'ArrowUp' ? i - 1 : e.key === 'ArrowDown' ? i + 1 : -1;
+    if (j < 0 || j >= ids.length || (e.key !== 'ArrowUp' && e.key !== 'ArrowDown')) return;
+    e.preventDefault(); const n = ids.slice(); n.splice(i, 1); n.splice(j, 0, id); onMove(n);
+    requestAnimationFrame(() => ul.current?.querySelector('li[data-id="' + id + '"] .grip')?.focus());
+  };
+  return (
+    <ul className={'list' + (sortable ? ' sortable' : '')} ref={ul}>
+      {shown.map((r) => (
+        <li key={r.c.id} data-id={r.c.id} className={live && st.current?.id === r.c.id ? 'dragging' : ''}>
+          {sortable && <button type="button" className="grip" aria-label={r.c.name + ' 순서 옮기기 (위아래 화살표)'} onPointerDown={(e) => down(e, r.c.id)} onPointerMove={move} onPointerUp={end} onPointerCancel={end} onKeyDown={(e) => key(e, r.c.id)}>⋮⋮</button>}
+          {row(r)}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function MarketList({ world, mk, setMk, cur, onSelect, selected, tick, watch = [] }) {
-  const [sort, setSort] = useState('turnover');
+  const [sort, setSort] = useState('mine');
+  const [snap, setSnap] = useState(null); // { key, ids } — frozen order for the snapshot sorts
+  const [order, setOrder] = useState(loadOrder);
   const [theme, setTheme] = useState('all');
   const fx = world.fx();
   const isW = mk === 'watch';
   const src = isW ? watch.map((id) => world.instrument(id)).filter((c) => c && !c.index && world.priceOf(c.id) != null) : world.listed(mk);
   const themes = isW ? [] : THEME_ORDER.filter((k) => src.some((c) => !c.etf && c.theme === k));
   const rows = src.filter((c) => isW || theme === 'all' || (theme === 'etf' ? c.etf : !c.etf && c.theme === theme)).map((c) => ({ c, q: world.quote(c.id), sp: world.spark(c.id) }));
-  const stocks = rows.filter((r) => !r.c.etf), etfs = rows.filter((r) => r.c.etf);
-  const sorter = { turnover: (a, b) => b.q.turnover * (b.c.mk === 'us' ? fx : 1) - a.q.turnover * (a.c.mk === 'us' ? fx : 1), up: (a, b) => b.q.chg - a.q.chg, down: (a, b) => a.q.chg - b.q.chg, name: (a, b) => a.c.name.localeCompare(b.c.name, 'ko') }[sort];
-  stocks.sort(sorter);
+  const sorter = { turnover: (a, b) => b.q.turnover * (b.c.mk === 'us' ? fx : 1) - a.q.turnover * (a.c.mk === 'us' ? fx : 1), up: (a, b) => b.q.chg - a.q.chg, down: (a, b) => a.q.chg - b.q.chg, name: (a, b) => a.c.name.localeCompare(b.c.name, 'ko') };
+  const pickSort = (k) => {
+    setSort(k);
+    if (k === 'mine') { setSnap(null); return; }
+    const all = (isW ? src : world.listed(mk)).map((c) => ({ c, q: world.quote(c.id) })).sort(sorter[k]);
+    setSnap({ key: k, ids: all.map((r) => r.c.id) });
+  };
+  const arrange = (list) => (sort === 'mine' || !snap ? byOrder(list, order) : byOrder(list, snap.ids));
+  const stocks = arrange(rows.filter((r) => !r.c.etf)), etfs = arrange(rows.filter((r) => r.c.etf));
+  // a drag reorders only the visible subset; slot it back into the full saved order
+  const onMove = (subset) => {
+    const base = [...order]; for (const c of world.listed('kr').concat(world.listed('us'))) if (!base.includes(c.id)) base.push(c.id);
+    for (const id of subset) if (!base.includes(id)) base.push(id);
+    const set = new Set(subset), slots = base.map((id, i) => (set.has(id) ? i : -1)).filter((i) => i >= 0);
+    slots.forEach((i, j) => { base[i] = subset[j]; });
+    setOrder(base); saveOrder(base);
+  };
   const upcoming = isW ? [] : world.upcoming(mk);
   const badge = (r) => {
+    const s = world.statusOf ? world.statusOf(r.c.id) : null;
+    if (s === 'halt') return <span className="badge muted">거래정지</span>;
+    if (s === 'clr') return <span className="badge warn">정리매매</span>;
+    if (s === 'luld') return <span className="badge warn">일시정지</span>;
     if (r.c.mk === 'kr' && !r.c.etf && r.q.prev && r.q.price >= Math.floor(r.q.prev * 1.3 / 10) * 10 * 0.995 && r.q.chg > 0.29) return <span className="badge hot">상한가</span>;
     if (r.c.mk === 'kr' && !r.c.etf && r.q.chg < -0.29) return <span className="badge cold">하한가</span>;
     if (r.q.chg > 0.15) return <span className="badge hot">급등</span>;
     if (r.q.chg < -0.15) return <span className="badge cold">급락</span>;
+    if (r.c.ipoT && Math.abs(world.clock - r.c.ipoT) < 86400 * 1.2) return <span className="badge new">신규</span>;
     return null;
   };
   const row = (r) => (
-    <li key={r.c.id}>
-      <button type="button" className={'row' + (selected === r.c.id ? ' sel' : '')} onClick={() => onSelect(r.c.id)}>
-        <span className="r-name"><b>{r.c.name}{badge(r)}</b><small>{isW ? (r.c.mk === 'kr' ? '국내 · ' : '해외 · ') : ''}{r.c.tkr ? r.c.tkr + ' · ' : ''}{r.c.sector}</small></span>
-        <Spark data={r.sp} />
-        <span className="r-px"><b className="num">{priceText(r.c, r.q.price, cur, fx)}</b><small className={'num ' + tone(r.q.chg)}>{pct(r.q.chg)}</small></span>
-      </button>
-    </li>
+    <button type="button" className={'row' + (selected === r.c.id ? ' sel' : '')} onClick={() => onSelect(r.c.id)}>
+      <span className="r-name"><b>{r.c.name}{badge(r)}</b><small>{isW ? (r.c.mk === 'kr' ? '국내 · ' : '해외 · ') : ''}{r.c.tkr ? r.c.tkr + ' · ' : ''}{r.c.sector}</small></span>
+      <Spark data={r.sp} />
+      <span className="r-px"><b className="num">{priceText(r.c, r.q.price, cur, fx)}</b><small className={'num ' + tone(r.q.chg)}>{pct(r.q.chg)}</small></span>
+    </button>
   );
   const idxCard = (id) => {
     const inst = world.instrument(id), q = world.quote(id);
@@ -134,11 +210,12 @@ export function MarketList({ world, mk, setMk, cur, onSelect, selected, tick, wa
         </div>
       )}
       <div className="sorts" role="group" aria-label="정렬">
-        {SORTS.map(([k, l]) => <button key={k} type="button" aria-pressed={sort === k} onClick={() => setSort(k)}>{l}</button>)}
+        {SORTS.map(([k, l]) => <button key={k} type="button" aria-pressed={sort === k} onClick={() => pickSort(k)} title={k !== 'mine' && sort === k ? '다시 누르면 지금 기준으로 다시 정렬해요' : undefined}>{l}{k !== 'mine' && sort === k ? ' ↻' : ''}</button>)}
       </div>
-      <ul className="list">{stocks.map(row)}</ul>
+      {sort === 'mine' && <p className="note sort-hint">⋮⋮를 끌어서 순서를 바꿀 수 있어요. 순서는 가만히 있어요.</p>}
+      <DragList rows={stocks} row={row} sortable={sort === 'mine'} onMove={onMove} />
       {etfs.length > 0 && <h3 className="list-h">ETF</h3>}
-      <ul className="list">{etfs.map(row)}</ul>
+      <DragList rows={etfs} row={row} sortable={sort === 'mine'} onMove={onMove} />
     </section>
   );
 }

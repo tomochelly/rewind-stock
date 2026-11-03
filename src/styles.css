@@ -6,7 +6,8 @@
   --up: #FF5A5F; --down: #5B9BFF; --buy: #D92B35; --sell: #2F6FEB; --on-trade: #FFFFFF;
   --band-ext: rgba(200, 245, 59, 0.08); --grid: #1D2024; --scrim: rgba(0, 0, 0, 0.6);
   --font-ui: 'IBM Plex Sans KR', 'Apple SD Gothic Neo', 'Malgun Gothic', system-ui, sans-serif;
-  --font-num: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --font-num: 'Pretendard Variable', Pretendard, 'IBM Plex Sans KR', system-ui, sans-serif;
+  --num-track: -0.02em;
   color-scheme: dark;
 }
 @media (prefers-color-scheme: light) { :root:not([data-theme="dark"]) {
@@ -34,7 +35,7 @@ button:disabled { cursor: not-allowed; opacity: 0.45; }
 :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 h1, h2, h3, p { margin: 0; }
 h3 { font-size: 13px; font-weight: 600; color: var(--muted); }
-.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; }
+.num { font-family: var(--font-num); font-variant-numeric: tabular-nums; font-feature-settings: 'tnum' 1; letter-spacing: var(--num-track); }
 .muted { color: var(--muted); }
 .up { color: var(--up); } .down { color: var(--down); } .flat { color: var(--muted); }
 .note { font-size: 12px; color: var(--muted); }
@@ -79,11 +80,11 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); }
 [aria-pressed="true"] > .switch::after { left: 23px; background: var(--on-accent); }
 .qty { display: flex; align-items: center; gap: 10px; background: var(--surface-2); border-radius: 12px; padding: 0 14px; min-height: 50px; }
 .qty span:first-child { font-size: 13px; color: var(--muted); white-space: nowrap; }
-.qty input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; text-align: right; font-family: var(--font-num); font-size: 17px; outline: none; }
+.qty input { flex: 1 1 auto; min-width: 0; border: 0; background: transparent; text-align: right; font-family: var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: var(--num-track); font-size: 17px; outline: none; }
 /* Korean text (nickname, placeholders) falls back to wide monospace glyphs in the number font */
 .qty input::placeholder, .qty input#nick { font-family: var(--font-ui); font-size: 15px; }
 .pcts { display: grid; grid-template-columns: repeat(auto-fit, minmax(60px, 1fr)); gap: 8px; }
-.pcts button { min-height: 42px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-family: var(--font-num); font-weight: 700; font-size: 13px; }
+.pcts button { min-height: 42px; border-radius: 12px; border: 1px solid var(--line); background: transparent; font-family: var(--font-num); font-variant-numeric: tabular-nums; letter-spacing: var(--num-track); font-weight: 700; font-size: 13px; }
 .pcts button[aria-pressed="true"] { border-color: var(--accent); background: var(--surface-2); }
 
 /* start */
@@ -292,3 +293,16 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); }
 .lb-info b small { margin-left: 6px; color: var(--accent-text); font-size: 12px; }
 .lb-info > small { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .lobby-list .ghost { width: auto; min-height: 40px; padding: 0 16px; }
+
+/* fixed list order + drag handle */
+.list li { display: flex; align-items: center; min-width: 0; }
+.list li > .row { flex: 1 1 auto; min-width: 0; }
+.grip { flex: 0 0 auto; width: 28px; min-height: 44px; border: 0; background: transparent; color: var(--muted); font-size: 13px; letter-spacing: -2px; cursor: grab; touch-action: none; border-radius: 8px; opacity: 0.55; }
+.grip:hover, .grip:focus-visible { opacity: 1; background: var(--surface); }
+.list li.dragging { opacity: 0.9; }
+.list li.dragging > .row { background: var(--surface-2); outline: 1px solid var(--accent); }
+.list li.dragging .grip { cursor: grabbing; opacity: 1; }
+.sort-hint { margin: -2px 0 2px; }
+.badge.muted { background: var(--surface-2); color: var(--muted); }
+.badge.warn { background: var(--accent); color: var(--on-accent); }
+.badge.new { background: transparent; color: var(--accent-text); border: 1px solid var(--accent); }

@@ -9,7 +9,8 @@
 - `npm start` → `dist/` + 실시간 중계(`/relay`)를 한 포트로 서비스. 배포는 이걸로(Render는 `render.yaml`)
 - `npm run cf:deploy` → Cloudflare Workers 배포(`wrangler.jsonc`, Worker 이름 `rewind-stock`, Custom Domain `stock.gagether.wiki` — GAGETHER 프로젝트와 같은 존이지만 서브도메인 하나만 씀. 존 전체 route 패턴 금지). 정적 에셋 + `worker/index.js`의 `RelayChannel` Durable Object(채널당 1개, Hibernation API)가 `/relay`를 같은 프로토콜로 처리. `npm run cf:dev`는 로컬 미리 보기(:8787)
 - `npm run build:exe [-- linux-x64]` → `release/rewind-win-x64.exe`. Node SEA: esbuild로 `server/index.mjs`를 CJS 한 파일로 묶고 `dist/`를 SEA 에셋으로 넣음(`scripts/build-exe.mjs`). 서버는 SEA 안이면 에셋에서, 아니면 `dist/`에서 파일을 읽음. exe는 브라우저 자동 열기·LAN 주소 표시·포트 사용 중이면 다음 포트
-- `npm run test:engine` → 2019→2027 캠페인 헤드리스 실행: 가격 이상값, 지수 기준점, 저장/복원 결정성 확인 (약 3분)
+- `npm run test:engine` → 2019→2027 캠페인 헤드리스 실행: 가격 이상값, 지수 기준점, 저장/복원 결정성 확인 (약 10분)
+- `node scripts/surge-check.mjs [seed] [끝 날짜]` → 급등주·상한가·거래정지·상폐 통계 (전체 약 13분, `check-2 2022-06-01`처럼 짧게도)
 
 ## 지켜야 할 결정 (바꾸기 전에 사용자에게 확인)
 - **실제 시세 데이터를 쓰지 않는다.** 가격은 전부 생성. 날짜·사건 흐름만 실제를 참고. (개인 증권사 API는 제3자 배포 금지라서)
@@ -24,8 +25,9 @@
 - `src/engine/calendar.js` 한·미 휴장일(2027년 이후는 근사), 미국 서머타임, 세션(정규/프리/애프터/데이), 넥스트레이드(2025.03~), 미국주식 주간거래 중단(2024.08.05~2025.11.04), 연도별 증권거래세(근사)
 - `src/engine/backdrop.js` 2019.06~2026.11.03 반도체 업종 지수 기준점·핵심 거래일·AI/메모리 사이클·실제 국면 뉴스·기업 이벤트
 - `src/engine/themes.js` 코스비/나스닭 기준점, 테마 사이클(2차전지, 바이오, 방산, 조선, 원전, 전력, 로봇, 엔터, 게임, 플랫폼, 빅테크, 코인, 밈, 우주, 양자)
-- `src/engine/companies.js` 반도체 32곳(SEMIS) + 테마 66곳(MORE) + ETF 8개 + 2026.11 이후 가상 IPO 생성
+- `src/engine/companies.js` 반도체 32곳(SEMIS) + 테마(MORE, 미장 마이크로캡 6곳 포함) + 중소형 잡주 32곳(SMALLS) + ETF 8개 + 2019.07~2026.11 가상 신규 상장(`pastIpos`, 28일 블록마다 45%) + 2026.11 이후 가상 IPO(`futureIpos`, 40%). `risky`(SMALLS·마이크로캡·가상 IPO)만 거래정지·상폐 대상, 원래 큐레이션한 기업은 상폐 안 됨
 - `src/engine/future.js` 2026.11.04 이후 국면 전환, 거시 이벤트, 찌라시 템플릿
+- `src/engine/world.js` 종목별 특수 움직임은 `plan()` 한 곳에서 정함(우선순위: 정리매매/거래재개 > 상장 첫날 `ipoPlan` > 급등주 에피소드 `spike`/`episode` > 기업 이슈 `issue` > 상장 직후 흐름). 계획은 `{g 시가갭, r 종가, pk 장중 극값, at 극값 시점, step 장중 계단, pre 프리마켓 점프, vol, volx, news}`(로그수익률). 에피소드는 시작일 기준으로 며칠짜리 계획을 통째로 재생성해서 결정적. `fate()`는 시드·종목별로 한 번: 거래정지 → 상장폐지(정리매매 KR 7거래일·가격제한 없음 / US OTC 이전) 또는 거래재개. 미장은 LULD(5분 10%, $3 미만 20%)로 5분 정지 → `day.lu`. 정지 중엔 주문 불가(`isHalted`), 상폐 후 보유 주식은 0원 처리(`sweepDelisted`). `fromSave`는 저장 당시 없던 종목을 빼서 업데이트 전 저장도 이어짐
 - `src/engine/world.js` 하루 단위 지연 생성기. 지수 뼈대 → 10초 간격 브라운 브리지 → 종목(베타×지수 + 테마 노출 + 고유 움직임 + 찌라시 충격 + 급등) → ETF(일일 리셋) → 환율. `stats()`로 시세 조회 O(1)
 - `src/engine/account.js` 원화·달러 예수금, 시장가/지정가(당일 유효, 금액·주식 묶기), 자동 환전, 관심 종목
 - `src/engine/community.js` 시장 상황 반응형 가상 게시글 (UI에서 1.5초마다 호출로 속도 제한)
@@ -33,13 +35,17 @@
 - `src/net/lobby.js` 공개 로비: `rw-lobby` 채널에 공개 방의 현재 방장이 2초마다 방 정보를 광고, 시작 화면이 목록으로 보여줌
 - `server/relay.mjs` presence 중계(채널별 메모리, 저장 없음, 10초 하트비트로 끊긴 연결 정리). `vite.config.js` 플러그인으로 `npm run dev`/`preview`에도 붙음. `server/index.mjs` 배포용 정적 서버 + 중계
 - `src/net/match.js` 방장 선출(가장 먼저 들어온 사람), presence 내용, 참가자 목표 시계
-- `src/ui/` React 화면. 모바일(<1080px) 하단 탭 / 데스크톱 3열. 색은 전부 `styles.css`의 토큰(다크 기본, 라이트 전환)
+- `src/ui/views.jsx` 시장 목록은 순서가 저절로 안 바뀜: 기본 '내 순서'(⋮⋮ 드래그·화살표키, localStorage `rw-order`), 나머지 정렬은 누른 순간의 스냅샷(다시 누르면 갱신). 배지: 거래정지·정리매매·일시정지(LULD)·상한가·급등·신규
+- `src/ui/` React 화면. 숫자 폰트는 Pretendard(tabular-nums, 자간 `--num-track` -0.02em), 본문은 IBM Plex Sans KR. 모바일(<1080px) 하단 탭 / 데스크톱 3열. 색은 전부 `styles.css`의 토큰(다크 기본, 라이트 전환)
 
 ## 확인 상태
 - ✅ `npm install`·`npm run build` 통과 (2026-11, Node 22, Vite 6.4)
 - ✅ 브라우저 클릭 테스트(데스크톱 1440px, 모바일 390px): 시작 → 플레이 → 종목 상세 → 시장가/지정가 주문 → 해외 매수·매도(자동 환전) → 환전 → 관심 종목 → 커뮤니티 → 뉴스 → 설정(라이트 모드) → 새로고침 후 이어하기. 콘솔 에러 없음, 390px 가로 넘침 없음
 - ✅ 자체 중계로 3개 브라우저 테스트: 공개 방 생성 → 로비에 0.8초 안에 표시 → 코드 없이 참가 → 같은 시계·지수 → 방장 이탈 후 승계 → 승계자가 로비에 다시 광고 → 새 참가자가 승계자에 동기화. 주요 뉴스 정지 시 방장·참가자 가격 완전 일치
 - ⬜ Supabase 어댑터(`supabaseRoom`)는 여전히 실행해보지 못함(키 없음). 자체 중계가 기본이라 급하지 않음
+- ✅ 급등주·기업 이슈·거래정지·상폐 개편 후: `test:engine` 결정성 true·이상 가격 0, `surge-check`(check-1 전체): 미장 장중 +300% 이상 46회, +50% 찍고 음전 177회, LULD 1637회. 국장 상한가 하루 0.6~0.9개(빈도 올린 뒤), 연상 있음. 정리매매 7일 동안 거래정지 전 가격의 15~20%로 녹고 장중 상폐빔. 브라우저: 순서 고정, 드래그 후 새로고침해도 유지, 스냅샷 정렬 고정, 390px 넘침 없음
+- ⬜ 업데이트 전 저장 이어하기(`fromSave` 종목 필터)는 실제 옛 저장으로는 아직 안 해봄
+- 알려진 한계: 정리매매는 실제처럼 30분 단일가가 아니라 연속 거래. 종목이 늘어서 하루 생성 시간이 약 1.8배(×4h 속도에서도 충분)
 - 알려진 한계: 방장이 수동 일시정지하면 참가자가 최대 0.5초×속도만큼 앞에 멈출 수 있음(×600에서 약 1분)
 - 시계바 높이는 `ClockBar`가 `--cb-h` CSS 변수로 내보냄. 그 아래 붙는 sticky 요소(왼쪽 열, 토스트, 체결 알림)는 이 값을 기준으로 위치를 잡는다
 

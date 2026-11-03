@@ -36,6 +36,7 @@ const taxFor = (inst, side, world) => (side === 'sell' && inst.mk === 'kr' && !i
 // Estimate a market order without executing it. pct is of buying power (buy) or of free shares (sell).
 export function quoteOrder(acct, world, id, side, qtyOrPct, byPct) {
   const inst = world.instrument(id), mk = inst.mk, fx = world.fx();
+  if (world.isHalted && world.isHalted(id)) return { ok: false, reason: '거래정지 중이라 주문할 수 없어요.' };
   const px = fillPrice(world, id, side);
   if (px == null) return { ok: false, reason: '지금은 이 종목이 거래되지 않는 시간이에요.' };
   return sizeOrder(acct, world, inst, side, px, qtyOrPct, byPct, fx);
@@ -148,7 +149,7 @@ export function processOrders(acct, world, t0, t1) {
   const out = [];
   for (const o of [...acct.orders]) {
     const inst = world.instrument(o.id), usdSide = inst.mk === 'us';
-    const r = world.priceRange(o.id, t0, Math.min(t1, o.exp));
+    const r = world.isHalted && world.isHalted(o.id) ? null : world.priceRange(o.id, t0, Math.min(t1, o.exp));
     let fillPx = null;
     if (r) {
       if (o.side === 'buy' && r.min <= o.px) fillPx = r.first <= o.px ? r.first : o.px;
@@ -189,4 +190,19 @@ export function valuation(acct, world) {
   }
   const totalKrw = acct.krw + krStock + (acct.usd + usStock) * fx;
   return { fx, krStock, usStock, totalKrw, ret: totalKrw / acct.startKrw - 1, rows };
+}
+
+// 상장폐지: after the last 정리매매 day the shares are gone (worth nothing). Open orders on it are cancelled.
+export function sweepDelisted(acct, world) {
+  const out = [];
+  for (const o of [...acct.orders]) if (world.isDelisted(o.id)) { release(acct, { ...o, usd: world.instrument(o.id).mk === 'us' }); acct.orders.splice(acct.orders.indexOf(o), 1); }
+  for (const [id, p] of Object.entries(acct.pos)) {
+    if (!world.isDelisted(id)) continue;
+    out.push({ id, q: p.q, cost: p.cost });
+    delete acct.pos[id];
+    acct.fills.push({ kind: 'delist', id, side: 'sell', qty: p.q, px: 0, t: world.clock });
+  }
+  if (acct.fills.length > 100) acct.fills.splice(0, acct.fills.length - 100);
+  const wi = acct.watch.filter((id) => world.isDelisted(id)); for (const id of wi) acct.watch.splice(acct.watch.indexOf(id), 1);
+  return out;
 }

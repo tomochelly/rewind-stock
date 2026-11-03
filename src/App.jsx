@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { World, randomStart, IDX, BIDX } from './engine/world.js';
 import { dateOf, DAY } from './engine/calendar.js';
-import { newAccount, normalizeAccount, execute, exchange, valuation, placeLimit, cancelOrder, processOrders, toggleWatch } from './engine/account.js';
+import { newAccount, normalizeAccount, execute, exchange, valuation, placeLimit, cancelOrder, processOrders, toggleWatch, sweepDelisted } from './engine/account.js';
 import { newCommunity, communityTick } from './engine/community.js';
 import { openRoom, newRoomCode } from './net/room.js';
 import { hostOf, myPresence, targetClock } from './net/match.js';
@@ -81,6 +81,19 @@ export default function App() {
       : '지정가 주문이 장 마감으로 취소됐어요 · ' + inst.name + ' ' + e.o.qty + '주';
     setFillNote({ text, until: performance.now() + 5000 });
     save();
+  };
+
+  // held stocks: 상장폐지 wipes the position; halts and delisting news on something I own get a notice
+  const notifyDelist = (gone) => {
+    if (!gone || !gone.length) return;
+    const w = worldRef.current;
+    setFillNote({ text: '상장폐지 · ' + gone.map((g) => (w.instrument(g.id)?.name || g.id) + ' ' + g.q + '주').join(', ') + '가 사라졌어요', until: performance.now() + 8000 });
+    save();
+  };
+  const notifyHeld = (fired) => {
+    const a = acctRef.current; if (!fired || !a) return;
+    const e = fired.filter((x) => x.comp && a.pos[x.comp] && ['거래정지', '상장폐지', '거래재개', '상폐빔'].includes(x.tag)).pop();
+    if (e) setFillNote({ text: '보유 종목 · ' + e.text, until: performance.now() + 8000 });
   };
 
   const begin = (w, a) => {
@@ -242,6 +255,8 @@ export default function App() {
         } else if (res && res.fired.some((e) => e.major)) setToast(res.fired.filter((e) => e.major).pop());
         if (w.clock !== t0) {
           notifyFills(processOrders(a, w, t0, w.clock));
+          if (res) notifyHeld(res.fired);
+          notifyDelist(sweepDelisted(a, w));
           const cs = commRef.current;
           if (cs.t0 == null) cs.t0 = t0;
           if (now - (cs.lastReal || 0) > 1500) { communityTick(w, cs, cs.t0, w.clock); cs.t0 = w.clock; cs.lastReal = now; }
@@ -266,6 +281,7 @@ export default function App() {
     const t0 = w.clock;
     const res = w.skipTo(target, settings.pause);
     notifyFills(processOrders(acctRef.current, w, t0, w.clock));
+    notifyHeld(res.fired); notifyDelist(sweepDelisted(acctRef.current, w));
     communityTick(w, commRef.current, t0, w.clock); commRef.current.t0 = w.clock;
     if (res.paused) { setToast(res.fired.filter((e) => e.major).pop() || null); setSpeedState(0); }
     else if (speed === 0) setSpeed(lastSpeed.current);

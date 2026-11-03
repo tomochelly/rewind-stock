@@ -117,7 +117,52 @@ export const MORE = [
   X('bmc', 'us', 'BMC 시네마', 'BMCE', 'meme', 1.2, { meme: 1.6, ent: 0.3 }, 0.05, 7.8, 'A 다음은 B. 극장 체인이자 밈 주식.', { small: true }),
   X('c4', 'us', 'C4.ai', 'CFAI', 'ai', 1.4, { ai: 1.0 }, 0.05, 42, '3.ai보다 하나 더. 기업용 AI 소프트웨어, 2020년 상장.', { ipo: '2020-12-09', small: true }),
   X('rnf', 'us', '레인플레이크', 'RNFK', 'big', 1.3, { big: 0.6, ai: 0.4 }, 0.03, 120, '눈송이 말고 빗방울. 클라우드 데이터 플랫폼, 2020년 상장.', { ipo: '2020-09-16' }),
+  // US — 초소형 잡주(마이크로캡): 실제 기업을 흉내 내지 않은 완전 가상. 몇백 % 급등과 음전이 잦아요.
+  X('nrs', 'us', '뉴로스파크', 'NRSP', 'bio', 1.1, { bio: 1.2 }, 0.07, 1.84, '임상 1상 신경질환 바이오. 현금이 몇 분기 치밖에 안 남았어요.', { small: true, micro: true, risky: true }),
+  X('hys', 'us', '하이퍼쉘 AI', 'HYSL', 'ai', 1.3, { ai: 1.2 }, 0.075, 2.35, '원래 물류 회사였는데 이름에 AI를 붙였어요. 발표는 많고 매출은 적어요.', { small: true, micro: true, risky: true }),
+  X('skc', 'us', '스카이캡 모빌리티', 'SKCP', 'space', 1.5, { space: 1.5 }, 0.07, 3.1, '하늘을 나는 택시(eVTOL)를 만든다는 스팩 상장사.', { small: true, micro: true, risky: true }),
+  X('cnk', 'us', '코인스택 홀딩스', 'CNSK', 'coin', 1.6, { coin: 1.8 }, 0.08, 1.2, '채굴기 몇 대와 큰 꿈. 코인이 오르면 몇 배로 튀어요.', { small: true, micro: true, risky: true }),
+  X('lnm', 'us', '루나몰', 'LUNM', 'meme', 1.2, { meme: 1.8 }, 0.085, 0.82, '1달러 아래의 온라인 쇼핑몰. 커뮤니티에서 갑자기 불이 붙곤 해요.', { small: true, micro: true, risky: true }),
+  X('grv', 'us', '그린볼트 에너지', 'GRVT', 'power', 1.3, { power: 1.2 }, 0.07, 2.05, '수소 배터리 스타트업. 계약 소식 하나에 하루 수백 %가 움직여요.', { small: true, micro: true, risky: true }),
   X('jpm', 'us', 'JP모닝', 'JPMN', 'bank', 0.8, { bank: 1.0 }, 0.013, 105.2, '모건(Morgan) 말고 모닝(Morning). 미국 최대 은행.'),
+];
+
+// 국내·해외 중소형주 추가분: 실제 기업을 흉내 내지 않은 완전 가상 기업. 테마주·잡주 역할이라 급등락이 잦아요.
+const SM = { small: true, risky: true }; // risky: can be halted or delisted
+export const SMALLS = [
+  X('k01', 'kr', '세진배터리소재', null, 'bat', 1.4, { bat: 1.6 }, 0.05, 12400, '음극재 소재를 만드는 2차전지 소부장. 테마가 돌면 제일 먼저 튀어요.', SM),
+  X('k02', 'kr', '동방동박', null, 'bat', 1.3, { bat: 1.4 }, 0.045, 8350, '배터리용 얇은 구리막(동박) 제조사.', SM),
+  X('k03', 'kr', '바이오넥스트', null, 'bio', 1.2, { bio: 1.6 }, 0.06, 6720, '항암 신약 후보물질 하나에 시가총액이 걸린 바이오.', SM),
+  X('k04', 'kr', '젠큐어', null, 'bio', 1.1, { bio: 1.5 }, 0.055, 15300, '유전자 치료제 개발사. 임상 결과 발표일마다 롤러코스터.', SM),
+  X('k05', 'kr', '위생산업', null, 'bio', 1.0, { bio: 1.0, meme: 0.5 }, 0.06, 3200, '마스크와 손소독제. 감염병 뉴스가 나오면 테마주가 돼요.', SM),
+  X('k06', 'kr', '한빛방산', null, 'def', 1.0, { def: 1.5 }, 0.04, 23400, '포탄 부품과 군용 전자장비.', SM),
+  X('k07', 'kr', '태극드론', null, 'def', 1.3, { def: 1.4, robot: 0.4 }, 0.06, 4150, '군용·산업용 드론 스타트업.', SM),
+  X('k08', 'kr', '남해조선기자재', null, 'ship', 1.2, { ship: 1.6 }, 0.05, 5630, 'LNG선 보냉재와 배관을 납품해요.', SM),
+  X('k09', 'kr', '원광에너지', null, 'nuc', 1.3, { nuc: 1.7 }, 0.05, 7240, '원전 정비와 계측 장비. 정책 뉴스에 민감해요.', SM),
+  X('k10', 'kr', '대성전선', null, 'power', 1.3, { power: 1.6 }, 0.05, 3890, '전력 케이블 중견사. 데이터센터 붐의 숨은 수혜주.', SM),
+  X('k11', 'kr', '한일변압기', null, 'power', 1.2, { power: 1.7 }, 0.045, 11200, '대형 변압기 수출 기업.', SM),
+  X('k12', 'kr', '별빛엔터', null, 'ent', 1.1, { ent: 1.5 }, 0.05, 18700, '신인 걸그룹 하나로 버티는 중소 기획사.', SM),
+  X('k13', 'kr', '픽셀게임즈', null, 'game', 1.2, { game: 1.5 }, 0.05, 9100, '모바일 게임 개발사. 신작 출시일이 곧 주가.', SM),
+  X('k14', 'kr', '디지털자산홀딩스', null, 'coin', 1.4, { coin: 1.6 }, 0.07, 1890, '코인 지갑·수탁 사업을 한다는 지주사.', SM),
+  X('k15', 'kr', '대명산업', null, 'meme', 1.1, { meme: 1.2 }, 0.07, 2350, '대표가 유력 정치인과 동문이라는 소문으로 움직이는 정치 테마주.', SM),
+  X('k16', 'kr', '한울초전도', null, 'meme', 1.2, { meme: 1.4 }, 0.075, 4300, '"상온 초전도체" 논문 하나에 테마가 붙는 신소재주.', SM),
+  X('k17', 'kr', '통일물산', null, 'meme', 1.0, { meme: 1.0 }, 0.07, 1650, '남북 경협 테마의 단골. 회담 소식 하나에 상한가.', SM),
+  X('k18', 'kr', '정밀감속기', null, 'robot', 1.3, { robot: 1.6 }, 0.05, 14500, '로봇 관절에 들어가는 감속기 국산화.', SM),
+  X('k19', 'kr', '딥브레인소프트', null, 'ai', 1.4, { ai: 1.4 }, 0.06, 7800, '대화형 AI 솔루션. AI 테마 순환매의 단골.', SM),
+  X('k20', 'kr', '한빛위성', null, 'space', 1.3, { space: 1.6 }, 0.055, 21000, '초소형 위성 제조사.', SM),
+  X('k21', 'kr', '퀀텀시큐', null, 'quant', 1.4, { quant: 1.8 }, 0.065, 5400, '양자 암호 통신 장비. 해외 양자주가 뛰면 따라 뛰어요.', SM),
+  X('k22', 'kr', '수소모빌리티', null, 'power', 1.3, { power: 1.0, auto: 0.6 }, 0.06, 6700, '수소 연료전지 부품.', SM),
+  // US
+  X('u01', 'us', '클라우드번', 'CLBN', 'ai', 1.5, { ai: 1.4 }, 0.055, 18.4, 'GPU를 빌려주는 AI 데이터센터 임대 회사.', SM),
+  X('u02', 'us', '퀀텀레인', 'QTLN', 'quant', 1.7, { quant: 2.0 }, 0.08, 4.2, '양자컴퓨터 시제품만 몇 년째. 기대감으로 움직여요.', { small: true, micro: true, risky: true }),
+  X('u03', 'us', '바이오젠트', 'BGNT', 'bio', 1.2, { bio: 1.5 }, 0.06, 7.6, '희귀질환 치료제 임상 3상 진행 중.', SM),
+  X('u04', 'us', '아스트로랜드', 'ASTL', 'space', 1.6, { space: 1.8 }, 0.06, 6.1, '달 착륙선을 만드는 우주 스타트업.', SM),
+  X('u05', 'us', '리튬캐니언', 'LTCN', 'bat', 1.5, { bat: 1.6 }, 0.075, 3.4, '네바다 리튬 광산 개발. 생산은 아직이에요.', { small: true, micro: true, risky: true }),
+  X('u06', 'us', '썸머다이렉트', 'SMDR', 'meme', 1.2, { meme: 1.6 }, 0.085, 1.4, '파산 직전 소매 체인. 공매도 잔고가 유통 주식보다 많아요.', { small: true, micro: true, risky: true }),
+  X('u07', 'us', '드론킹', 'DRKG', 'def', 1.4, { def: 1.4 }, 0.06, 5.2, '국방용 소형 드론.', SM),
+  X('u08', 'us', '퓨전파워', 'FSNP', 'nuc', 1.6, { nuc: 1.8, ai: 0.3 }, 0.065, 9.8, '핵융합 발전 스타트업. 매출은 없고 꿈은 커요.', SM),
+  X('u09', 'us', '메타스트림', 'MTSM', 'plat', 1.3, { plat: 1.2 }, 0.05, 11.0, '라이브 스트리밍 플랫폼.', SM),
+  X('u10', 'us', '하이드로젠원', 'HYDO', 'power', 1.5, { power: 1.4 }, 0.09, 0.95, '수소 트럭을 만든다는 1달러 미만 주식.', { small: true, micro: true, risky: true }),
 ];
 
 export const ETFS = [
@@ -140,13 +185,58 @@ const EN_KO = { Nova: '노바', Vela: '벨라', Quanta: '콴타', Lumen: '루멘
   Logic: '로직', Photon: '포톤', Wafer: '웨이퍼', Neural: '뉴럴', Silica: '실리카', Volt: '볼트', Grid: '그리드' };
 const IPO_SECTORS = [['광 반도체', 'semi', { ai: 0.6 }], ['AI 추론 칩', 'semi', { ai: 1.3 }], ['차세대 메모리', 'semi', { mem: 1.0, ai: 0.4 }], ['휴머노이드 로봇', 'robot', { robot: 1.6, ai: 0.4 }], ['소형 원자로', 'nuc', { nuc: 2.0 }], ['우주 인터넷', 'space', { space: 2.0 }], ['비만 치료제', 'bio', { bio: 1.5 }], ['양자 보안', 'quant', { quant: 2.0 }], ['드론 방산', 'def', { def: 1.5 }], ['전고체 배터리', 'bat', { bat: 1.6 }], ['AI 에이전트 SW', 'ai', { ai: 1.4 }]];
 
+// Procedural IPOs during the real period (2019.07 ~ 2026.11): fictional names, every theme, deterministic per seed.
+const PAST_SECTORS = {
+  kr: [['2차전지 소재', 'bat', { bat: 1.6 }, ['에너지', '머티리얼즈', '케미칼']], ['신약 개발', 'bio', { bio: 1.6 }, ['바이오', '테라퓨틱스', '파마']], ['진단 기기', 'bio', { bio: 1.3 }, ['메디칼', '진단', '헬스케어']],
+    ['방산 부품', 'def', { def: 1.4 }, ['디펜스', '정밀', '시스템']], ['조선 기자재', 'ship', { ship: 1.5 }, ['마린', '오션', '중공업']], ['게임 개발', 'game', { game: 1.5 }, ['게임즈', '스튜디오', '인터랙티브']],
+    ['엔터테인먼트', 'ent', { ent: 1.5 }, ['엔터', '뮤직', '미디어']], ['로봇', 'robot', { robot: 1.6 }, ['로보틱스', '오토메이션', '모션']], ['AI 소프트웨어', 'ai', { ai: 1.4 }, ['AI', '데이터', '소프트']],
+    ['반도체 장비', 'semi', { ai: 0.6, mem: 0.6 }, ['세미', '테크', '이큅']], ['전력 설비', 'power', { power: 1.5 }, ['파워', '전기', '일렉트릭']], ['플랫폼', 'plat', { plat: 1.3 }, ['랩스', '플랫폼', '네트웍스']]],
+  us: [['전기차', 'auto', { auto: 1.8 }, ['Motors', 'EV']], ['eVTOL', 'space', { space: 1.8 }, ['Air', 'Aero']], ['바이오텍', 'bio', { bio: 1.6 }, ['Bio', 'Thera']], ['핀테크', 'bank', { bank: 0.8, plat: 0.6 }, ['Pay', 'Fi']],
+    ['AI 소프트웨어', 'ai', { ai: 1.5 }, ['AI', 'Labs']], ['양자컴퓨터', 'quant', { quant: 2.0 }, ['Quantum', 'Qubit']], ['코인 채굴', 'coin', { coin: 1.8 }, ['Hash', 'Mining']], ['원전', 'nuc', { nuc: 1.8 }, ['Fission', 'Atomic']],
+    ['클라우드', 'big', { big: 0.8, ai: 0.5 }, ['Cloud', 'Data']], ['우주항공', 'space', { space: 1.8 }, ['Orbit', 'Space']]],
+};
+const KR_HEAD = ['한결', '새봄', '다온', '가람', '해솔', '미르', '온누리', '청담', '태양', '푸름', '라움', '아이', '에이치', '제이', '케이', '엠', '와이', '대진', '성우', '동인', '서광', '우진', '금성'];
+const US_HEAD = ['Aster', 'Bolt', 'Cedar', 'Delta', 'Ember', 'Flux', 'Glide', 'Halo', 'Iris', 'Juno', 'Krypt', 'Lyra', 'Magna', 'Nimbus', 'Onyx', 'Pulse', 'Quill', 'Rally', 'Sable', 'Tidal', 'Ultra', 'Vivid', 'Wren', 'Xeno', 'Yotta', 'Zephyr'];
+const US_KO = { Aster: '애스터', Bolt: '볼트', Cedar: '시더', Delta: '델타', Ember: '엠버', Flux: '플럭스', Glide: '글라이드', Halo: '헤일로', Iris: '아이리스', Juno: '주노', Krypt: '크립트', Lyra: '라이라', Magna: '매그나', Nimbus: '님버스', Onyx: '오닉스', Pulse: '펄스', Quill: '퀼', Rally: '랠리', Sable: '세이블', Tidal: '타이달', Ultra: '울트라', Vivid: '비비드', Wren: '렌', Xeno: '제노', Yotta: '요타', Zephyr: '제퍼',
+  Motors: '모터스', EV: 'EV', Air: '에어', Aero: '에어로', Bio: '바이오', Thera: '테라퓨틱스', Pay: '페이', Fi: '파이', AI: 'AI', Labs: '랩스', Quantum: '퀀텀', Qubit: '큐비트', Hash: '해시', Mining: '마이닝', Fission: '피션', Atomic: '아토믹', Cloud: '클라우드', Data: '데이터', Orbit: '오빗', Space: '스페이스' };
+const PAST_FROM = T0('2019-07-01');
+let pastCache = null;
+export function pastIpos(seed) {
+  if (pastCache && pastCache.seed === seed) return pastCache.list;
+  const out = [], used = new Set();
+  for (let b = 0, bt = PAST_FROM; bt < BACKDROP_END - 10 * DAY; b++, bt = PAST_FROM + b * 28 * DAY) {
+    for (const mk of ['kr', 'us']) {
+      const r = rngFor(seed, 'pipo', mk, b);
+      if (r() > 0.45) continue;
+      let t = bt + Math.floor(r() * 20) * DAY;
+      while (!isTradingDay(mk, t)) t = nextTradingDay(mk, t);
+      if (t >= BACKDROP_END) continue;
+      const [sector, theme, th, tails] = pick(r, PAST_SECTORS[mk]);
+      let name, tkr;
+      for (let tries = 0; tries < 6; tries++) {
+        if (mk === 'kr') name = pick(r, KR_HEAD) + pick(r, tails);
+        else { const a = pick(r, US_HEAD), c = pick(r, tails); name = US_KO[a] + ' ' + US_KO[c]; tkr = (a.slice(0, 3) + c.slice(0, 1)).toUpperCase(); }
+        if (!used.has(name)) break;
+      }
+      if (used.has(name)) continue;
+      used.add(name);
+      const micro = mk === 'us' && r() < 0.3;
+      const price = mk === 'kr' ? Math.round((6000 + r() * 34000) / 100) * 100 : micro ? Math.round((2 + r() * 6) * 100) / 100 : Math.round(10 + r() * 25);
+      out.push({ id: 'p' + mk + b, mk, name, tkr, sector, theme, th, base: theme === 'semi' ? 'semi' : 'broad', beta: 1.1 + r() * 0.6, ai: th.ai || 0, mem: th.mem || 0, ivol: (micro ? 0.065 : 0.035) + r() * 0.03, price,
+        ipoT: t, desc: sector + ' 신규 상장사 (가상 기업).', small: true, micro, risky: true });
+    }
+  }
+  pastCache = { seed, list: out };
+  return out;
+}
+
 export function futureIpos(seed, uptoT) {
   const out = [];
   const startBlock = BACKDROP_END;
   for (let b = 0, bt = startBlock; bt <= uptoT; b++, bt = startBlock + b * 28 * DAY) {
     for (const mk of ['kr', 'us']) {
       const r = rngFor(seed, 'ipo', mk, b);
-      if (r() > 0.2) continue;
+      if (r() > 0.4) continue;
       let t = bt + Math.floor(r() * 20) * DAY;
       while (!isTradingDay(mk, t)) t = nextTradingDay(mk, t);
       if (t > uptoT + 30 * DAY) continue;
@@ -156,11 +246,11 @@ export function futureIpos(seed, uptoT) {
       else { const a = pick(r, EN1), c = pick(r, EN2); name = EN_KO[a] + EN_KO[c]; tkr = (a.slice(0, 2) + c.slice(0, 2)).toUpperCase(); }
       const price = mk === 'kr' ? Math.round((8000 + r() * 40000) / 100) * 100 : Math.round(15 + r() * 45);
       out.push({ id: 'f' + mk + b, mk, name, tkr, sector, theme, th, base: theme === 'semi' ? 'semi' : 'broad', beta: 1.2 + r() * 0.5, ai: th.ai || 0, mem: th.mem || 0, ivol: 0.03 + r() * 0.03, price,
-        ipoT: t, desc: '새로 상장한 ' + sector + ' 기업 (가상).', future: true, small: true });
+        ipoT: t, desc: '새로 상장한 ' + sector + ' 기업 (가상).', future: true, small: true, risky: true });
     }
   }
   return out;
 }
 
-export const ROSTER = [...SEMIS.map((c) => ({ ...c, base: 'semi', theme: 'semi', th: { ai: c.ai, mem: c.mem }, small: c.ivol >= 0.035 })), ...MORE];
+export const ROSTER = [...SEMIS.map((c) => ({ ...c, base: 'semi', theme: 'semi', th: { ai: c.ai, mem: c.mem }, small: c.ivol >= 0.035 })), ...MORE, ...SMALLS];
 ROSTER.forEach((c) => { if (!c.sector) c.sector = { bat: '2차전지', bio: '바이오', def: '방산', ship: '조선', nuc: '원전', power: '전력기기', robot: '로봇', ent: '엔터', game: '게임', plat: '플랫폼', auto: '자동차', bank: '금융', coin: '코인', meme: '밈', big: '빅테크', space: '우주항공', quant: '양자컴퓨터', ai: 'AI 소프트웨어' }[c.theme]; });
