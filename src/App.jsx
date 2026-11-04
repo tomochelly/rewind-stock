@@ -59,7 +59,7 @@ export default function App() {
   useEffect(() => {
     const s = store.get(SAVE_KEY);
     if (s && s.world) {
-      try { const w = World.fromSave(s.world); setSaveInfo({ date: dateText(w.clock, w.startT, settings.hideYear), total: won(valuation(normalizeAccount(s.acct), w).totalKrw), raw: s }); }
+      try { const w = World.fromSave(s.world); setSaveInfo({ mode: w.mode, date: dateText(w.clock, w.startT, settings.hideYear || w.mode === 'unknown'), total: won(valuation(normalizeAccount(s.acct), w).totalKrw), raw: s }); }
       catch (e) { setSaveInfo(null); }
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -103,7 +103,7 @@ export default function App() {
   const newWorld = (opt) => {
     const seed = opt.code || Math.random().toString(36).slice(2, 8).toUpperCase();
     setSettings({ ...settings, hideYear: opt.hideYear, pause: opt.pause });
-    return new World({ seed, startT: randomStart(seed), ext: opt.ext });
+    return new World({ seed, startT: randomStart(seed), ext: opt.ext, mode: opt.mode });
   };
   const onStart = (opt) => { leaveRoom(); begin(newWorld(opt), newAccount(opt.cash || 10_000_000)); setTimeout(save, 0); };
   const onContinue = () => { leaveRoom(); const s = saveInfo.raw; begin(World.fromSave(s.world), normalizeAccount(s.acct)); };
@@ -158,7 +158,7 @@ export default function App() {
       }
       const hp = host.presence;
       if (!worldRef.current) {
-        const w = new World({ seed: hp.seed, startT: hp.startT, ext: hp.ext });
+        const w = new World({ seed: hp.seed, startT: hp.startT, ext: hp.ext, mode: hp.mode });
         const saved = store.get(roomKey(rm.code));
         acctRef.current = saved && saved.seed === hp.seed ? normalizeAccount(saved.acct) : newAccount(hp.cash);
         worldRef.current = w; rm.syncFrom = w.clock;
@@ -307,12 +307,14 @@ export default function App() {
       {isGuest() || !toast.major ? <button type="button" onClick={() => setToast(null)}>닫기</button> : <button type="button" onClick={() => setSpeed(lastSpeed.current)}>계속</button>}
     </div>
   );
-  const clock = <ClockBar world={w} settings={settings} speed={speed} setSpeed={setSpeed} onSkip={onSkip} onSettings={() => setSheet('settings')} desk={desk} cur={cur} setCur={setCur} locked={isGuest()} />;
+  // 미지의 국면: the year is always hidden (knowing it would give the chapter away)
+  const viewSettings = w && w.mode === 'unknown' ? { ...settings, hideYear: true, lockYear: true } : settings;
+  const clock = <ClockBar world={w} settings={viewSettings} speed={speed} setSpeed={setSpeed} onSkip={onSkip} onSettings={() => setSheet('settings')} desk={desk} cur={cur} setCur={setCur} locked={isGuest()} />;
   const sheets = (
     <>
       {sheet === 'order' && sel && <Sheet title="주문" onClose={() => setSheet(null)}><OrderPanel world={w} acct={a} id={sel} side={side} setSide={setSide} cur={cur} onDone={onOrderDone} onLimit={onLimit} tick={tick} /></Sheet>}
       {sheet === 'exchange' && <Sheet title="환전" onClose={() => setSheet(null)}><ExchangePanel world={w} acct={a} onExchange={onExchange} /></Sheet>}
-      {sheet === 'settings' && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsPanel settings={settings} setSettings={setSettings} world={w} onNew={onNew} /></Sheet>}
+      {sheet === 'settings' && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsPanel settings={viewSettings} setSettings={(x) => { const { lockYear, ...rest } = x; setSettings(lockYear ? { ...rest, hideYear: settings.hideYear } : rest); }} world={w} onNew={onNew} /></Sheet>}
     </>
   );
   const fillEl = fillNote && performance.now() < fillNote.until && <div className="fillnote" role="status">{fillNote.text}</div>;
@@ -338,8 +340,8 @@ export default function App() {
                 {tabs.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={rightTab === k} onClick={() => setRightTab(k)}>{l}</button>)}
               </div>
               {rightTab === 'room' && rm && <RoomPanel room={roomView} world={w} onLeave={onLeaveRoom} />}
-              {rightTab === 'news' && <NewsFeed world={w} news={news} settings={settings} compact />}
-              {rightTab === 'community' && <CommunityFeed posts={posts} world={w} settings={settings} onSelect={select} small />}
+              {rightTab === 'news' && <NewsFeed world={w} news={news} settings={viewSettings} compact />}
+              {rightTab === 'community' && <CommunityFeed posts={posts} world={w} settings={viewSettings} onSelect={select} small />}
             </div>
             <AccountView world={w} acct={a} cur={cur} setCur={setCur} onSelect={select} onExchange={() => setSheet('exchange')} onCancel={onCancel} tick={tick} theme={settings.theme} />
           </aside>
@@ -360,8 +362,8 @@ export default function App() {
         {tab === 'home' && <MarketList world={w} mk={mk} setMk={setMk} cur={cur} onSelect={select} selected={sel} tick={tick} watch={a.watch} />}
         {tab === 'stock' && sel && <StockDetail world={w} acct={a} id={sel} cur={cur} theme={settings.theme} tick={tick} news={news} onWatch={onWatch} onCancel={onCancel} onBack={() => setTab('home')} onOrder={(s) => { setSide(s); setSheet('order'); }} />}
         {tab === 'account' && <AccountView world={w} acct={a} cur={cur} setCur={setCur} onSelect={select} onExchange={() => setSheet('exchange')} onCancel={onCancel} tick={tick} theme={settings.theme} />}
-        {tab === 'news' && <NewsFeed world={w} news={news} settings={settings} />}
-        {tab === 'community' && <CommunityFeed posts={posts} world={w} settings={settings} onSelect={select} />}
+        {tab === 'news' && <NewsFeed world={w} news={news} settings={viewSettings} />}
+        {tab === 'community' && <CommunityFeed posts={posts} world={w} settings={viewSettings} onSelect={select} />}
         {tab === 'room' && rm && <RoomPanel room={roomView} world={w} onLeave={onLeaveRoom} />}
         {warn}
       </main>

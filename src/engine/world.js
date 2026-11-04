@@ -5,7 +5,8 @@ import { DAY, T0, kst, dateOf, isTradingDay, nextTradingDay, prevTradingDay, ses
 import { rngFor, gauss, pick } from './rng.js';
 import { ANCHORS, BASE_VOL, VOL_WINDOWS, KEYS, FACTORS, NEWS_LIST, COMP_EVENTS, BACKDROP_END, AMP } from './backdrop.js';
 import { ROSTER, ETFS, futureIpos, pastIpos } from './companies.js';
-import { regimeFor, futureEvent, futureEffect, RUMORS, BROKERS } from './future.js';
+import { regimeFor, macroEvent, macroEffect, macroFactor, shockOffset, RUMORS, BROKERS } from './future.js';
+import { makeWarp, storyDate, gameTime, gameDate, inGap } from './warp.js';
 import { BROAD_ANCHORS, BROAD_VOL, BROAD_FROM_SEMI, BROAD_KEYS, THEMES } from './themes.js';
 
 const PPM = 6; // one price point every 10 seconds
@@ -114,8 +115,10 @@ const deep = (o) => JSON.parse(JSON.stringify(o));
 const COMP_NEWS = COMP_EVENTS.filter((e) => e.text).map((e) => ({ ...e, at: kst(e.at) })).sort((a, b) => a.at - b.at);
 
 export class World {
-  constructor({ seed, startT, ext = true }) {
+  constructor({ seed, startT, ext = true, mode = 'history' }) {
     this.seed = String(seed); this.ext = ext; this.startT = startT;
+    this.mode = mode === 'unknown' ? 'unknown' : 'history';
+    this.warp = this.mode === 'unknown' ? makeWarp(this.seed, startT) : null; // story (history data) vs game calendar
     this.clock = startT + 7 * 3600;
     this.sessCache = new Map();
     this.days = { kr: [], us: [] };
@@ -130,13 +133,22 @@ export class World {
     [...ROSTER.map((c) => ({ ...c, ipoT: c.ipo ? T0(c.ipo) : null })), ...pastIpos(this.seed).map((c) => ({ ...c })), ...ETFS].forEach((c) => this.comp.set(c.id, c));
     this.ms = { kr: this.initMarket('kr'), us: this.initMarket('us') };
     this.snap = { kr: null, us: null };
-    this.realPtr = NEWS_LIST.findIndex((n) => kst(n.at) > this.clock);
+    this.realPtr = NEWS_LIST.findIndex((n) => this.gtime(kst(n.at)) > this.clock);
     if (this.realPtr < 0) this.realPtr = NEWS_LIST.length;
+  }
+  st(t) { return storyDate(this.warp, t); }          // game date → story date
+  gtime(x) { return gameTime(this.warp, x); }         // story time → game time
+  // strongest key day whose story date falls in (a, b]: compressed chapters can cover several story days in one game day
+  keyIn(map, a, b) {
+    if (!this.warp) return map[b];
+    let best = null; for (let d = a + DAY; d <= b; d += DAY) { const k = map[d]; if (k != null && (best == null || Math.abs(k.r ?? k) > Math.abs(best.r ?? best))) best = k; }
+    return best;
   }
 
   initMarket(mk) {
     let next = dateOf(this.startT); while (!isTradingDay(mk, next)) next += DAY;
-    const lvl = interpAnchors(ANCH[mk], prevTradingDay(mk, next)), blvl = interpAnchors(BANCH[mk], prevTradingDay(mk, next));
+    const s0 = this.st(prevTradingDay(mk, next));
+    const lvl = interpAnchors(ANCH[mk], s0), blvl = interpAnchors(BANCH[mk], s0);
     const comp = {}, etf = {};
     for (const c of this.comp.values()) {
       if (c.mk !== mk) continue;
@@ -177,31 +189,41 @@ export class World {
   skeleton(mk, t, prev, kind = 'semi') {
     const broad = kind === 'broad';
     const r = rngFor(this.seed, mk, broad ? 'bsk' : 'sk', t);
+    const s = this.st(t), sp = this.st(prevTradingDay(mk, t)); // story window covered by this game day
     let g, ret, rg = null, spec = {};
-    let key = broad ? BROAD_KEYS[mk][t] : KEYS[mk][t];
-    if (broad && !key && KEYS[mk][t]) { const k = KEYS[mk][t], f = BROAD_FROM_SEMI[mk]; key = { ...k, g: (k.g || 0) * f, r: k.r * f, rg: k.rg ? k.rg * f : undefined }; }
+    let key = this.keyIn(broad ? BROAD_KEYS[mk] : KEYS[mk], sp, s);
+    if (broad && !key) { const k0 = this.keyIn(KEYS[mk], sp, s); if (k0) { const f = BROAD_FROM_SEMI[mk]; key = { ...k0, g: (k0.g || 0) * f, r: k0.r * f, rg: k0.rg ? k0.rg * f : undefined }; } }
     const anchors = broad ? BANCH[mk] : ANCH[mk], bvol = broad ? BROAD_VOL[mk] : BASE_VOL[mk];
-    if (t <= BACKDROP_END) {
-      const vol = bvol * this.volMult(t);
+    const fe = macroEffect(this.seed, mk, t, this.mode, kind), ff = broad ? 0.6 : 1;
+    const story = s <= BACKDROP_END;
+    if (story && inGap(this.warp, t)) { // calm stretch between chapters: no story drift, a mild random regime
+      const rr = rngFor(this.seed, 'gapreg', mk, Math.floor(t / (28 * DAY))), vol = bvol * (0.7 + rr() * 0.4);
+      ret = (rr() - 0.5) * 0.002 + vol * AMP * 0.8 * gauss(r) + fe.r * AMP * ff;
+      g = 0.35 * (ret - fe.r * AMP * ff) + fe.g * AMP * ff + 0.3 * vol * gauss(r);
+    } else if (story) {
+      const vol = bvol * this.volMult(s);
       if (key) { g = (key.g || 0) * AMP; ret = key.r * AMP; spec = key; if (key.rg) rg = key.rg * AMP; }
       else {
-        const anc = anchors.find(([d]) => d >= t) || anchors[anchors.length - 1];
-        let n = 0; for (let d = t; d <= anc[0]; d += DAY) if (isTradingDay(mk, d)) n++;
-        const drift = n > 0 ? (Math.log(anc[1]) - Math.log(prev)) / n : 0;
+        const anc = anchors.find(([d]) => d >= s) || anchors[anchors.length - 1];
+        const ag = this.warp ? gameDate(this.warp, anc[0]) : anc[0];
+        let n = 0; for (let d = t; d <= ag; d += DAY) if (isTradingDay(mk, d)) n++;
+        // unknown mode: past fictional shocks fade out slowly instead of being undone by the next anchor
+        const off = shockOffset(this.seed, mk, t, this.mode, kind) * ff * AMP * Math.exp(-((ag - t) / DAY) / 90);
+        const drift = n > 0 ? (Math.log(anc[1]) + off - Math.log(prev)) / Math.max(1, n) : 0;
         ret = drift + vol * AMP * 0.85 * gauss(r);
         g = 0.35 * ret + 0.3 * vol * gauss(r);
       }
+      if (this.warp) { ret += fe.r * AMP * ff; g += fe.g * AMP * ff; }
     } else {
-      const reg = regimeFor(this.seed, t), vol = bvol * reg.vm, f = broad ? 0.6 : 1;
-      const fe = futureEffect(this.seed, mk, t);
-      ret = reg.drift * f + vol * AMP * gauss(r) + fe.r * AMP * f;
-      g = 0.35 * (ret - fe.r * AMP * f) + fe.g * AMP * f + 0.3 * vol * gauss(r);
+      const reg = regimeFor(this.seed, s), vol = bvol * reg.vm;
+      ret = reg.drift * ff + vol * AMP * gauss(r) + fe.r * AMP * ff;
+      g = 0.35 * (ret - fe.r * AMP * ff) + fe.g * AMP * ff + 0.3 * vol * gauss(r);
     }
     const O = prev * (1 + g), C = prev * (1 + ret);
-    const vol = bvol * (t <= BACKDROP_END ? this.volMult(t) : 1);
+    const vol = bvol * (story ? this.volMult(s) : 1);
     const range = rg != null ? rg : Math.abs(ret - g) + vol * (0.7 + r() * 0.6) * AMP;
-    const extra = Math.max(0.004, range - Math.abs(C - O) / prev), s = 0.3 + 0.4 * r();
-    return { t, O, C, H: Math.max(O, C) * (1 + extra * s), L: Math.min(O, C) * (1 - extra * (1 - s)), prev, spec };
+    const extra = Math.max(0.004, range - Math.abs(C - O) / prev), sh = 0.3 + 0.4 * r();
+    return { t, O, C, H: Math.max(O, C) * (1 + extra * sh), L: Math.min(O, C) * (1 - extra * (1 - sh)), prev, spec };
   }
   factor(name, t) {
     const r = rngFor(this.seed, 'fac', name, t);
@@ -209,15 +231,23 @@ export class World {
     if (!F || !F.drift) return 0;
     const vol = FACTORS[name] ? 0.006 : (F.vol || 0.012) * 0.6;
     let d = 0;
-    if (t <= BACKDROP_END) { for (const [a, b, x] of F.drift) if (t >= a && t <= b) d = FACTORS[name] ? x * 0.5 : x; d += (F.keys[t] || 0); }
-    else if (FACTORS[name]) d = regimeFor(this.seed, t)[name];
-    else { const b = Math.floor((t - BACKDROP_END) / (28 * DAY)), rr = rngFor(this.seed, 'threg', name, b); d = (rr() - 0.5) * 0.006 + (rr() < 0.04 ? 0.08 : 0) * (rr() < 0.5 ? 1 : -1) * (rngFor(this.seed, 'thk', name, t)() < 0.1 ? 1 : 0); }
+    const s = this.st(t), sp = this.st(t - DAY);
+    if (s <= BACKDROP_END) {
+      // drift is per story day: a compressed chapter moves several story days per game day, a calm gap none
+      const span = this.warp ? (s - sp) / DAY : 1;
+      for (const [a, b, x] of F.drift) if (s >= a && s <= b) d = (FACTORS[name] ? x * 0.5 : x) * span;
+      d += this.keyIn(F.keys, sp, s) || 0;
+    }
+    else if (FACTORS[name]) d = regimeFor(this.seed, s)[name];
+    else { const b = Math.floor((s - BACKDROP_END) / (28 * DAY)), rr = rngFor(this.seed, 'threg', name, b); d = (rr() - 0.5) * 0.006 + (rr() < 0.04 ? 0.08 : 0) * (rr() < 0.5 ? 1 : -1) * (rngFor(this.seed, 'thk', name, t)() < 0.1 ? 1 : 0); }
+    d += macroFactor(this.seed, name, t, this.mode) / AMP;
     return (d + vol * gauss(r)) * AMP;
   }
 
   /* ---------- FX: daily anchors with smooth intraday motion ---------- */
-  fxDaily(d) {
-    if (d <= BACKDROP_END) { const r = rngFor(this.seed, 'fx', d); return interpAnchors(ANCH.fx, d) * (1 + 0.003 * gauss(r)); }
+  fxDaily(d0) {
+    const d = this.st(d0);
+    if (d <= BACKDROP_END) { const r = rngFor(this.seed, 'fx', d0); return interpAnchors(ANCH.fx, d) * (1 + 0.003 * gauss(r)); }
     if (!this._fxF) this._fxF = new Map();
     if (this._fxF.has(d)) return this._fxF.get(d);
     let v = interpAnchors(ANCH.fx, BACKDROP_END), x = BACKDROP_END;
@@ -248,7 +278,7 @@ export class World {
 
   genDay(mk) {
     const ms = this.ms[mk];
-    if (!ms.bidx) { const l = interpAnchors(BANCH[mk], prevTradingDay(mk, ms.next)); ms.bidx = { close: l, last: l }; } // saves from before v0.5
+    if (!ms.bidx) { const l = interpAnchors(BANCH[mk], this.st(prevTradingDay(mk, ms.next))); ms.bidx = { close: l, last: l }; } // saves from before v0.5
     this.snap[mk] = deep(ms);
     const days = this.days[mk];
     if (days.length) { this.pushHist(days[days.length - 1]); }
@@ -301,7 +331,8 @@ export class World {
     const P = {}, V = {}, prevClose = {}, daily = {}, stat = {}, flag = {}, lu = {};
     const base = { semi: { L: LI, prev: Math.log(ms.idx.close), last0: Math.log(ms.idx.last) }, broad: { L: LB, prev: Math.log(ms.bidx.close), last0: Math.log(ms.bidx.last) } };
     const facCache = {}, fac = (name) => (facCache[name] ??= this.factor(name, t));
-    const compKeys = new Map(COMP_EVENTS.filter((e) => e.t === t).map((e) => [e.comp, e]));
+    const sT = this.st(t), sP = this.st(prevTradingDay(mk, t));
+    const compKeys = new Map(COMP_EVENTS.filter((e) => (this.warp ? e.t > sP && e.t <= sT : e.t === t)).map((e) => [e.comp, e]));
     const regW = (() => { let s = 0; for (let k = 0; k < S[regPos].n; k++) { const x = k / (S[regPos].n - 1); s += 0.5 + 2.2 * (1 - x) ** 5 + 1.4 * x ** 5; } return s; })();
     const dayVolMult = 1 + Math.abs(sk.C / sk.prev - 1) * 14 + Math.abs(sk.O / sk.prev - 1) * 8;
     for (const c of listed) {
@@ -629,19 +660,21 @@ export class World {
   ensureNews(t) {
     if (t <= this.newsUpto) return;
     while (this.realPtr < NEWS_LIST.length) {
-      const n = NEWS_LIST[this.realPtr], nt = kst(n.at);
+      const n = NEWS_LIST[this.realPtr], nt = this.gtime(kst(n.at));
       if (nt > t) break;
       if (nt > this.newsUpto) this.queue({ t: nt, mk: n.mk, tag: n.major ? '속보' : '뉴스', text: n.text, major: n.major, comp: null });
       this.realPtr++;
     }
     for (const e of COMP_NEWS) {
-      if (e.at > t) break;
-      if (e.at <= this.newsUpto) continue;
+      const at = this.gtime(e.at);
+      if (at > t) break;
+      if (at <= this.newsUpto) continue;
       const c = this.comp.get(e.comp);
-      this.queue({ t: e.at, mk: c.mk, tag: e.major ? '속보' : '공시', text: e.text.replace(/\{co\}/g, c.name), major: e.major, comp: c.id });
+      if (!c || (c.ipoT && c.ipoT > dateOf(at))) continue; // compressed story: the company may not be listed yet
+      this.queue({ t: at, mk: c.mk, tag: e.major ? '속보' : '공시', text: e.text.replace(/\{co\}/g, c.name), major: e.major, comp: c.id });
     }
     for (let d = dateOf(this.newsUpto); d <= dateOf(t); d += DAY) {
-      const ev = futureEvent(this.seed, d);
+      const ev = macroEvent(this.seed, d, this.mode);
       if (ev && ev.t > this.newsUpto && ev.t <= t) this.queue({ t: ev.t, mk: 'all', tag: ev.major ? '속보' : '뉴스', text: ev.text, major: ev.major, comp: null });
       if (d > BACKDROP_END) for (const c of this.comp.values()) {
         if (c.future && c.ipoT - 3 * DAY >= d && c.ipoT - 3 * DAY < d + DAY) {
@@ -842,14 +875,14 @@ export class World {
       hist[id] = out;
     }
     return {
-      v: 1, seed: this.seed, ext: this.ext, startT: this.startT, clock: this.clock,
+      v: 1, seed: this.seed, ext: this.ext, mode: this.mode, startT: this.startT, clock: this.clock,
       snap: deep(this.snap), msNow: deep(this.ms), hist,
       newsLog: this.newsLog.slice(-120),
       futureIds: [...this.comp.values()].filter((c) => c.future).map((c) => c.id),
     };
   }
   static fromSave(o) {
-    const w = new World({ seed: o.seed, startT: o.startT, ext: o.ext });
+    const w = new World({ seed: o.seed, startT: o.startT, ext: o.ext, mode: o.mode });
     w.hist = {};
     for (const [id, rows] of Object.entries(o.hist || {})) w.hist[id] = rows.map((r) => (r.length === 2 ? [r[0], r[1], r[1], r[1], r[1], 0] : [r[0], r[1], r[2], r[3], r[4], r[5] * 1000]));
     w.newsLog = o.newsLog || [];
@@ -862,7 +895,7 @@ export class World {
     }
     w.clock = o.clock;
     w.newsUpto = o.clock;
-    w.realPtr = NEWS_LIST.findIndex((n) => kst(n.at) > o.clock); if (w.realPtr < 0) w.realPtr = NEWS_LIST.length;
+    w.realPtr = NEWS_LIST.findIndex((n) => w.gtime(kst(n.at)) > o.clock); if (w.realPtr < 0) w.realPtr = NEWS_LIST.length;
     for (const mk of ['kr', 'us']) {
       if (o.snap && o.snap[mk]) { w.ms[mk] = deep(o.snap[mk]); w.genDay(mk); }
       else w.ms[mk] = deep(o.msNow[mk]);

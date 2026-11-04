@@ -306,3 +306,6 @@ h3 { font-size: 13px; font-weight: 600; color: var(--muted); }
 .badge.muted { background: var(--surface-2); color: var(--muted); }
 .badge.warn { background: var(--accent); color: var(--on-accent); }
 .badge.new { background: transparent; color: var(--accent-text); border: 1px solid var(--accent); }
+
+.mode-pick { margin-top: 4px; }
+.mode-note { margin: 2px 2px 4px; }

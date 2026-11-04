@@ -554,7 +554,7 @@ export function SettingsPanel({ settings, setSettings, world, onNew }) {
         <button type="button" className="setting" aria-pressed={settings.theme === 'light'} onClick={() => setSettings({ ...settings, theme: settings.theme === 'light' ? 'dark' : 'light' })}>
           <span className="t"><b>라이트 모드</b><small>끄면 다크 모드예요</small></span><span className="switch" aria-hidden="true" />
         </button>
-        {toggle('hideYear', '연도 숨기기', "몇 년도인지 모르게 '1년차'로 표시해요")}
+        {settings.lockYear ? <p className="note">미지의 국면 모드라 연도는 항상 숨겨져요.</p> : toggle('hideYear', '연도 숨기기', "몇 년도인지 모르게 '1년차'로 표시해요")}
         {toggle('pause', '주요 뉴스에 일시정지', '찌라시·단신은 멈추지 않아요')}
       </div>
       <div className="codebox"><span><small>세계 코드</small><b className="num">{world.seed}</b></span>
@@ -569,7 +569,7 @@ export function SettingsPanel({ settings, setSettings, world, onNew }) {
 
 /* ---------------- Start ---------------- */
 export function StartScreen({ saveInfo, onContinue, onStart, onCreateRoom, onJoinRoom, roomMsg, busy, lobby = { status: 'none', rooms: [] } }) {
-  const [opt, setOpt] = useState({ hideYear: true, ext: true, pause: true, code: '', cash: 10000000, pub: true });
+  const [opt, setOpt] = useState({ mode: 'history', hideYear: true, ext: true, pause: true, code: '', cash: 10000000, pub: true });
   const [nick, setNick] = useState(() => { try { return localStorage.getItem('rewind.nick') || ''; } catch (e) { return ''; } });
   const [joinCode, setJoinCode] = useState('');
   const nickOk = nick.trim().length > 0;
@@ -587,11 +587,18 @@ export function StartScreen({ saveInfo, onContinue, onStart, onCreateRoom, onJoi
       <p className="lede">언제 무슨 일이 터질지는 몰라요. 실제로 있었던 국면 위에서 가상의 반도체 회사 20여 곳과 레버리지 ETF를 국내·해외 장 구분 없이 사고팔아요. 지금 이후의 미래도 계속 이어져요.</p>
       {saveInfo && (
         <button type="button" className="continue" onClick={onContinue}>
-          <span><small>이어하기</small><b>{saveInfo.date}</b></span><span className="num">{saveInfo.total}</span>
+          <span><small>이어하기{saveInfo.mode === 'unknown' ? ' · 미지의 국면' : ''}</small><b>{saveInfo.date}</b></span><span className="num">{saveInfo.total}</span>
         </button>
       )}
+      <div className="seg big mode-pick" role="radiogroup" aria-label="모드">
+        <button type="button" role="radio" aria-checked={opt.mode === 'history'} aria-pressed={opt.mode === 'history'} onClick={() => setOpt({ ...opt, mode: 'history' })}>역사 그대로</button>
+        <button type="button" role="radio" aria-checked={opt.mode === 'unknown'} aria-pressed={opt.mode === 'unknown'} onClick={() => setOpt({ ...opt, mode: 'unknown' })}>미지의 국면</button>
+      </div>
+      <p className="note mode-note">{opt.mode === 'history'
+        ? '실제 날짜와 순서 그대로 흘러가요. 2026년 11월 이후는 가상의 미래예요.'
+        : '실제 국면이 같은 순서로 오지만 언제, 얼마나 빨리 올지는 매번 달라요. 대체로 더 빠르게 지나가고, 가상의 대형 사건이 수시로 끼어들어요. 연도는 항상 숨겨져요.'}</p>
       <div className="settings">
-        {tg('hideYear', '연도 숨기기', "몇 년도인지 모르게 '1년차'로 표시해요")}
+        {opt.mode === 'history' && tg('hideYear', '연도 숨기기', "몇 년도인지 모르게 '1년차'로 표시해요")}
         {tg('ext', '시간외 세션 포함', '그 시기에 열렸던 프리·애프터·데이마켓까지 흘러가요')}
         {tg('pause', '주요 뉴스에 일시정지', '속보가 나오면 멈춰요')}
       </div>
@@ -622,7 +629,7 @@ export function StartScreen({ saveInfo, onContinue, onStart, onCreateRoom, onJoi
               {lobby.rooms.map((r) => (
                 <li key={r.code}>
                   <span className="lb-info"><b>{r.nick}의 방 <small className="num">{r.n}명</small></b>
-                    <small>{r.startT ? dateText(r.clock, r.startT, true) : ''} · 시작 자금 {compact(r.cash)}원 · {r.speed ? '진행 중' : '일시정지'}{r.ext ? '' : ' · 정규장만'}</small></span>
+                    <small>{r.mode === 'unknown' ? '미지의 국면 · ' : ''}{r.startT ? dateText(r.clock, r.startT, true) : ''} · 시작 자금 {compact(r.cash)}원 · {r.speed ? '진행 중' : '일시정지'}{r.ext ? '' : ' · 정규장만'}</small></span>
                   <button type="button" className="ghost" disabled={!nickOk || busy} onClick={() => { saveNick(); onJoinRoom(r.code, nick.trim()); }}>참가</button>
                 </li>
               ))}

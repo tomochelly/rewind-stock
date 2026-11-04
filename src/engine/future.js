@@ -26,44 +26,97 @@ const EVENTS = [
   [-1, '미 소비자물가 예상 상회', 0.03], [1, '미 물가 둔화 확인, 금리 인하 기대 확산', 0.03],
   [-1, 'AI 클라우드 기업 회사채 금리 급등… 자금 조달 우려', 0.045], [1, '주요 AI 기업, 흑자 전환 발표… "투자 회수 시작"', 0.04],
 ];
+// Bigger fictional shocks: [sign, headline, index size, { mk: 'kr'|'us' only, semi: extra weight on the chip index, f: factor/theme moves }]
+const BIG = [
+  [-1, '중동 전면전 위기… 국제유가 하루 20% 폭등', 0.06, { f: { def: 0.08, nuc: 0.03, power: 0.02 } }],
+  [-1, '미 대형 지역은행 파산… 뱅크런 공포 확산', 0.07, { f: { bank: -0.1, coin: 0.05 } }],
+  [-1, '신종 호흡기 감염병 확산… WHO 비상사태 검토', 0.08, { f: { bio: 0.12, ent: -0.06, ship: -0.04 } }],
+  [-1, '대형 코인 거래소 해킹… 출금 전면 중단', 0.02, { f: { coin: -0.2, meme: -0.05 } }],
+  [1, '연준, 긴급 회의 열고 기준금리 0.5%p 전격 인하', 0.05, {}],
+  [-1, '연준, 시장 예상 깬 0.75%p 인상… "물가 잡을 때까지"', 0.06, { f: { big: -0.03 } }],
+  [-1, '대만 규모 7.5 강진… 파운드리 공장 일제히 가동 중단', 0.05, { semi: 1.8, f: { mem: 0.03 } }],
+  [-1, '미 법무부, 빅테크 반독점 기업 분할 명령', 0.05, { f: { big: -0.08, plat: -0.04 } }],
+  [-1, '"AI 거품" 경고 보고서 파장… 빅테크 일제히 급락', 0.07, { semi: 1.4, f: { ai: -0.06 } }],
+  [-1, '미 국가 신용등급 강등… 국채 금리 급등', 0.045, {}],
+  [-1, '대형 헤지펀드 파산… 마진콜 연쇄 청산', 0.06, { f: { meme: -0.06 } }],
+  [-1, '글로벌 해운 요충지 봉쇄… 물류 대란', 0.025, { f: { ship: 0.08, auto: -0.03 } }],
+  [-1, '북한 ICBM 발사… 한반도 긴장 고조', 0.03, { mk: 'kr', f: { def: 0.1 } }],
+  [-1, '정치 불확실성 확대… 외국인 대규모 순매도', 0.04, { mk: 'kr' }],
+  [1, '정부, 공매도 전면 금지 발표', 0.05, { mk: 'kr', f: { bat: 0.06, bio: 0.04 } }],
+  [1, '중국, 사상 최대 경기 부양책 발표', 0.045, { f: { bat: 0.05, ship: 0.03, auto: 0.03 } }],
+  [1, '미·중 정상회담 깜짝 합의… 관세 대폭 인하', 0.05, {}],
+  [1, '"꿈의 배터리" 전고체 상용화 발표', 0.02, { f: { bat: 0.12 } }],
+  [1, '핵융합 발전 첫 순발전 성공 발표', 0.015, { f: { nuc: 0.1, power: 0.05 } }],
+  [1, '"인간 수준" 범용 AI 공개… 전 세계 충격', 0.05, { semi: 1.3, f: { ai: 0.06, robot: 0.08 } }],
+  [1, '양자컴퓨터, 실제 암호 해독 시연 성공', 0.01, { f: { quant: 0.25, coin: -0.12 } }],
+  [1, '코인 현물 ETF로 사상 최대 자금 유입', 0.01, { f: { coin: 0.12 } }],
+  [1, '메모리 3사, 공동 감산 선언', 0.03, { semi: 1.5, f: { mem: 0.06 } }],
+  [1, '휴머노이드 로봇 월 1만 대 양산 돌입 발표', 0.02, { f: { robot: 0.15 } }],
+  [-1, '유인 우주선 발사 직후 폭발 사고', 0.005, { f: { space: -0.12 } }],
+  [1, 'FDA, 신약 심사 기간 절반으로 단축', 0.01, { f: { bio: 0.08 } }],
+  [-1, '장중 플래시 크래시… 알고리즘 매도 폭주', 0.04, {}],
+  [1, '미 물가 2% 안착 확인… "인플레 전쟁 끝났다"', 0.04, {}],
+  [-1, '글로벌 클라우드 대규모 장애… 하루 넘게 먹통', 0.02, { f: { big: -0.04, ai: -0.02 } }],
+  [1, '각국 정부, 원전 신규 건설 공동 선언', 0.015, { f: { nuc: 0.12, power: 0.04 } }],
+];
 const evCache = new Map();
-export function futureEvent(seed, d) { // d: date (00:00 KST)
-  if (d <= BACKDROP_END) return null;
-  const key = seed + ':' + d;
+// Macro events on a game date d. history mode: only after the real backdrop ends (as before, plus the bigger shocks).
+// unknown mode: from day one, more often, bigger and more varied; 3% are black swans (x2.5).
+export function macroEvent(seed, d, mode) {
+  if (mode !== 'unknown' && d <= BACKDROP_END) return null;
+  const key = seed + ':' + mode + ':' + d;
   if (evCache.has(key)) return evCache.get(key);
   let ev = null;
   const w = dow(d);
   if (w !== 0 && w !== 6) {
-    const r = rngFor(seed, 'fev', d);
-    if (r() < 0.06) {
-      const [sign, text, size] = pick(r, EVENTS);
+    const r = rngFor(seed, mode === 'unknown' ? 'uev' : 'fev', d);
+    if (r() < (mode === 'unknown' ? 0.085 : 0.06)) {
+      const big = r() < (mode === 'unknown' ? 0.4 : 0.15);
+      const [sign, text, size, opt] = big ? pick(r, BIG) : [...pick(r, EVENTS), {}];
       const morning = r() < 0.35; // 08:20 KST: hits KR the same day; 21:10 KST: hits US the same day, KR the next day
-      const mag = size * (0.6 + r() * 0.8) * sign;
-      ev = { t: d + (morning ? 8 * 3600 + 20 * 60 : 21 * 3600 + 10 * 60), morning, text, major: Math.abs(mag) > 0.03, mag, mk: 'all' };
+      const swan = mode === 'unknown' && big && r() < 0.03 * 10 / 4; // ~3% of all events
+      const mag = size * (0.6 + r() * 0.8) * sign * (swan ? 2.5 : 1);
+      ev = { t: d + (morning ? 8 * 3600 + 20 * 60 : 21 * 3600 + 10 * 60), morning, text: swan ? '[블랙스완] ' + text : text, major: Math.abs(mag) > 0.03, mag, mk: opt.mk || 'all',
+        semi: opt.semi || 1, f: opt.f || null, follow: big ? (r() - 0.45) * 0.9 : 0, swan };
     }
   }
   evCache.set(key, ev);
   return ev;
 }
+export const futureEvent = (seed, d) => macroEvent(seed, d, 'history');
 
-// Total future-event effect on a market's trading day t: {g, r}
-export function futureEffect(seed, mk, t) {
+// Total macro-event effect on a market's trading day t: {g, r}. Big shocks echo the next day (follow-through or rebound).
+export function macroEffect(seed, mk, t, mode, kind = 'semi') {
   let g = 0, r = 0;
-  if (t <= BACKDROP_END) return { g, r };
-  const apply = (ev, f) => { if (ev) { g += ev.mag * f * 0.8; r += ev.mag * f; } };
-  if (mk === 'us') {
-    const ev = futureEvent(seed, t);
-    if (ev) apply(ev, 1);
-  } else {
-    const prev = prevTradingDay('kr', t);
-    for (let d = prev; d <= t; d += DAY) {
-      const ev = futureEvent(seed, d);
-      if (!ev) continue;
-      if (d === t && ev.morning) apply(ev, 0.9);
-      else if (d < t && (!ev.morning || d > prev)) apply(ev, 0.75);
-    }
+  const apply = (ev, f) => { if (ev && (ev.mk === 'all' || ev.mk === mk)) { const m = ev.mag * f * (kind === 'semi' ? ev.semi : 1); g += m * 0.8; r += m; } };
+  const prev = prevTradingDay(mk, t);
+  if (mk === 'us') apply(macroEvent(seed, t, mode), 1);
+  else for (let d = prev; d <= t; d += DAY) {
+    const ev = macroEvent(seed, d, mode); if (!ev) continue;
+    if (d === t && ev.morning) apply(ev, 0.9);
+    else if (d < t && (!ev.morning || d > prev)) apply(ev, 0.75);
   }
+  // echo: the session after the shock
+  for (let d = prevTradingDay(mk, prev) + DAY; d <= prev; d += DAY) { const ev = macroEvent(seed, d, mode); if (ev && ev.follow) { const m = ev.mag * ev.follow * (kind === 'semi' ? ev.semi : 1); if (ev.mk === 'all' || ev.mk === mk) { g += m * 0.6; r += m; } } }
   return { g, r };
+}
+export const futureEffect = (seed, mk, t) => (t <= BACKDROP_END ? { g: 0, r: 0 } : macroEffect(seed, mk, t, 'history'));
+
+// Theme/factor moves from macro events on date t (the event day, or the day after an evening headline)
+export function macroFactor(seed, name, t, mode) {
+  let x = 0;
+  for (const d of [t, t - DAY]) { const ev = macroEvent(seed, d, mode); if (ev && ev.f && ev.f[name] && (d === t ? ev.morning : !ev.morning)) x += ev.f[name] * (ev.swan ? 2 : 1); }
+  return x;
+}
+// Lasting part of past shocks (log), fading with a ~90-day time constant: the story path is pulled toward this offset, not back to the raw anchor
+export function shockOffset(seed, mk, t, mode, kind = 'semi') {
+  if (mode !== 'unknown') return 0;
+  let off = 0;
+  for (let d = t - 240 * DAY; d < t; d += DAY) {
+    const ev = macroEvent(seed, d, mode);
+    if (ev && (ev.mk === 'all' || ev.mk === mk)) off += Math.log1p(ev.mag * (1 + (ev.follow || 0)) * (kind === 'semi' ? ev.semi : 1) * 1.2) * Math.exp(-(t - d) / (90 * DAY));
+  }
+  return off;
 }
 
 // Rumors & briefs: [tag, text, tone(+1/-1/0), target('stk'|'idx'|null)]

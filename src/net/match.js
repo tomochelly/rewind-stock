@@ -19,7 +19,7 @@ export function myPresence(world, acct, info, speed) {
   const trades = acct.trades.slice(-3).map((t) => [t.t, t.side === 'buy' ? 'b' : 's', (world.instrument(t.id)?.name || '').slice(0, 16), t.qty]);
   return {
     v: PRESENCE_V, nick: info.nick.slice(0, 16), role: info.role, joinedAt: info.joinedAt, pub: info.pub !== false,
-    seed: world.seed, ext: world.ext, startT: world.startT, cash: acct.startKrw,
+    seed: world.seed, ext: world.ext, mode: world.mode, startT: world.startT, cash: acct.startKrw,
     clock: world.clock, speed, total: Math.round(v.totalKrw), ret: Math.round(v.ret * 10000) / 10000, top, trades,
   };
 }

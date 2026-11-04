@@ -5,10 +5,11 @@ import { T0, dstr } from '../src/engine/calendar.js';
 import { newAccount, execute, valuation } from '../src/engine/account.js';
 
 const seed = process.argv[2] || 'check-1';
+const mode = process.argv[3] || 'history'; // or 'unknown'
 const t0 = Date.now();
 const start = randomStart(seed);
-const w = new World({ seed, startT: start, ext: true });
-console.log('start', dstr(start));
+const w = new World({ seed, startT: start, ext: true, mode });
+console.log('start', dstr(start), 'mode', mode);
 
 const checkpoints = ['2020-02-19', '2020-03-18', '2021-12-27', '2022-10-14', '2024-07-10', '2025-04-08', '2026-06-22', '2026-11-03', '2027-06-01']; const extra=['ecp','ggo','gsd','ionp','hpa','hde','ros'];
 let ci = 0, news = 0, majors = 0, bad = 0;
@@ -30,7 +31,7 @@ const v = valuation(acct, w);
 console.log('news', news, 'major', majors, 'badPrices', bad, 'account total', Math.round(v.totalKrw), 'ms', Date.now() - t0);
 
 // save/load determinism: save mid-day, reload, advance both by the same amount, compare
-const w2 = new World({ seed, startT: start, ext: true });
+const w2 = new World({ seed, startT: start, ext: true, mode });
 w2.advance(86400 * 400, false); w2.advance(3600 * 5 + 1234, false);
 const saved = JSON.stringify(w2.toSave());
 const w3 = World.fromSave(JSON.parse(saved));

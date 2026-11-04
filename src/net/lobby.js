@@ -10,7 +10,7 @@ export function lobbyAd(world, acct, rm) {
   const players = rm.peers.filter((p) => p.presence && p.presence.v === 2).length || 1;
   return {
     lobby: LOBBY_V, code: rm.code, nick: String(rm.nick || '').slice(0, 16), n: players,
-    clock: world.clock, startT: world.startT, ext: !!world.ext, cash: acct.startKrw, speed: rm.speed || 0, since: rm.createdAt || rm.joinedAt,
+    clock: world.clock, startT: world.startT, ext: !!world.ext, mode: world.mode, cash: acct.startKrw, speed: rm.speed || 0, since: rm.createdAt || rm.joinedAt,
   };
 }
 
@@ -24,7 +24,7 @@ export function lobbyRooms(peers) {
     if (!prev || (p.updatedAt || 0) > prev.updatedAt) {
       byCode.set(a.code, {
         code: a.code, nick: String(a.nick || '익명').slice(0, 16), n: Math.max(1, Math.min(99, Number(a.n) || 1)),
-        clock: Number(a.clock) || 0, startT: Number(a.startT) || 0, ext: !!a.ext, cash: Number(a.cash) || 0,
+        clock: Number(a.clock) || 0, startT: Number(a.startT) || 0, ext: !!a.ext, mode: a.mode === 'unknown' ? 'unknown' : 'history', cash: Number(a.cash) || 0,
         speed: Number(a.speed) || 0, since: Number(a.since) || 0, updatedAt: p.updatedAt || 0,
       });
     }
