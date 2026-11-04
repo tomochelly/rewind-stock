@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { World, randomStart, IDX, BIDX } from './engine/world.js';
 import { dateOf, DAY } from './engine/calendar.js';
-import { newAccount, normalizeAccount, execute, exchange, valuation, placeLimit, cancelOrder, processOrders, toggleWatch, sweepDelisted } from './engine/account.js';
+import { newAccount, normalizeAccount, execute, exchange, valuation, placeLimit, cancelOrder, processOrders, toggleWatch, sweepDelisted, availKrw } from './engine/account.js';
+import { newForge, buyItem, enhance, sellItem, costAt } from './minigame/forge.js';
+import { sound } from './ui/sound.js';
 import { newCommunity, communityTick } from './engine/community.js';
 import { openRoom, newRoomCode } from './net/room.js';
 import { hostOf, myPresence, targetClock } from './net/match.js';
 import { lobbyLink, lobbyRooms, lobbyAd } from './net/lobby.js';
-import { ClockBar, MarketList, StockDetail, OrderPanel, AccountView, NewsFeed, Sheet, ExchangePanel, SettingsPanel, StartScreen, CommunityFeed, RoomPanel, SyncScreen } from './ui/views.jsx';
+import { ClockBar, MarketList, StockDetail, OrderPanel, AccountView, NewsFeed, Sheet, ExchangePanel, SettingsPanel, StartScreen, CommunityFeed, RoomPanel, SyncScreen, ForgePanel } from './ui/views.jsx';
 import { dateText, won, priceText } from './ui/format.js';
 
 const SAVE_KEY = 'rewind.campaign.v1';
@@ -24,7 +26,7 @@ function useMedia(q) {
   return m;
 }
 
-const DEFAULT_SETTINGS = { theme: 'dark', cur: 'USD', hideYear: true, pause: true };
+const DEFAULT_SETTINGS = { theme: 'dark', cur: 'USD', hideYear: true, pause: true, sound: true, vol: 0.5 };
 const NO_ROOM_MSG = '실시간 서버에 연결할 수 없어요. `npm run dev`나 `npm start`로 띄운 주소에서 열어 주세요.';
 
 export default function App() {
@@ -80,6 +82,7 @@ export default function App() {
       ? '지정가 ' + (e.o.side === 'buy' ? '매수' : '매도') + ' 체결 · ' + inst.name + ' ' + e.o.qty + '주 ' + priceText(inst, e.trade.px, 'USD', w.fx())
       : '지정가 주문이 장 마감으로 취소됐어요 · ' + inst.name + ' ' + e.o.qty + '주';
     setFillNote({ text, until: performance.now() + 5000 });
+    if (e.kind === 'fill') sound.play('fill');
     save();
   };
 
@@ -87,13 +90,15 @@ export default function App() {
   const notifyDelist = (gone) => {
     if (!gone || !gone.length) return;
     const w = worldRef.current;
+    sound.play('warn');
     setFillNote({ text: '상장폐지 · ' + gone.map((g) => (w.instrument(g.id)?.name || g.id) + ' ' + g.q + '주').join(', ') + '가 사라졌어요', until: performance.now() + 8000 });
     save();
   };
   const notifyHeld = (fired) => {
     const a = acctRef.current; if (!fired || !a) return;
     const e = fired.filter((x) => x.comp && a.pos[x.comp] && ['거래정지', '상장폐지', '거래재개', '상폐빔'].includes(x.tag)).pop();
-    if (e) setFillNote({ text: '보유 종목 · ' + e.text, until: performance.now() + 8000 });
+    if (e) { setFillNote({ text: '보유 종목 · ' + e.text, until: performance.now() + 8000 }); sound.play('warn'); }
+    else if (fired.some((x) => x.comp && (a.pos[x.comp] || a.watch.includes(x.comp)) && ['상한가', '급등', '상장'].includes(x.tag))) sound.play('alert');
   };
 
   const begin = (w, a) => {
@@ -212,7 +217,9 @@ export default function App() {
   }, [phase]);
 
   /* ---------- game loop ---------- */
-  const modalOpen = sheet === 'order' || sheet === 'exchange';
+  const modalOpen = sheet === 'order' || sheet === 'exchange' || sheet === 'forge';
+  const bellRef = useRef({ kr: null, us: null });
+  useEffect(() => { sound.set({ on: settings.sound !== false, vol: settings.vol ?? 0.5 }); }, [settings.sound, settings.vol]);
   useEffect(() => {
     if (phase !== 'play') return;
     let raf, last = performance.now(), lastUi = 0, lastSave = performance.now();
@@ -253,13 +260,15 @@ export default function App() {
           res = w.advance(dt * speed, settings.pause);
           if (res.paused) { const m = res.fired.filter((e) => e.major).pop(); setToast(m || null); setSpeedState(0); }
         } else if (res && res.fired.some((e) => e.major)) setToast(res.fired.filter((e) => e.major).pop());
+        if (res && res.fired.some((e) => e.major)) sound.play('major');
+        for (const mk of ['kr', 'us']) { const reg = w.marketState(mk).sess?.id === 'reg'; if (reg && bellRef.current[mk] === false) sound.play('bell'); bellRef.current[mk] = reg; }
         if (w.clock !== t0) {
           notifyFills(processOrders(a, w, t0, w.clock));
           if (res) notifyHeld(res.fired);
           notifyDelist(sweepDelisted(a, w));
           const cs = commRef.current;
           if (cs.t0 == null) cs.t0 = t0;
-          if (now - (cs.lastReal || 0) > 1500) { communityTick(w, cs, cs.t0, w.clock); cs.t0 = w.clock; cs.lastReal = now; }
+          if (now - (cs.lastReal || 0) > 1500) { communityTick(w, cs, cs.t0, w.clock, { acct: a, peers: rm ? rm.peers : [] }); cs.t0 = w.clock; cs.lastReal = now; }
           if (dateOf(w.clock) !== before) { a.eq.push({ t: before, v: valuation(a, w).totalKrw }); if (a.eq.length > 4000) a.eq.shift(); }
         }
       }
@@ -282,12 +291,27 @@ export default function App() {
     const res = w.skipTo(target, settings.pause);
     notifyFills(processOrders(acctRef.current, w, t0, w.clock));
     notifyHeld(res.fired); notifyDelist(sweepDelisted(acctRef.current, w));
-    communityTick(w, commRef.current, t0, w.clock); commRef.current.t0 = w.clock;
+    communityTick(w, commRef.current, t0, w.clock, { acct: acctRef.current, peers: roomRef.current ? roomRef.current.peers : [] }); commRef.current.t0 = w.clock;
     if (res.paused) { setToast(res.fired.filter((e) => e.major).pop() || null); setSpeedState(0); }
     else if (speed === 0) setSpeed(lastSpeed.current);
     setTick((x) => x + 1);
   };
-  const onOrderDone = (id, s, v, byPct) => { const r = execute(acctRef.current, worldRef.current, id, s, v, byPct); setTick((x) => x + 1); save(); return r; };
+  const onOrderDone = (id, s, v, byPct) => { const r = execute(acctRef.current, worldRef.current, id, s, v, byPct); if (r.ok) sound.play(s === 'buy' ? 'buy' : 'sell'); setTick((x) => x + 1); save(); return r; };
+  // 강화소: money moves between KRW cash and the item; results are revealed by the panel after a short suspense
+  const onForge = (act, base) => {
+    const a = acctRef.current; if (!a) return null;
+    if (!a.forge) a.forge = newForge();
+    const f = a.forge; let out = null;
+    if (act === 'buy') { if (availKrw(a) < base) return { err: '원화 예수금이 부족해요.' }; a.krw -= base; buyItem(f, base); sound.play('coin'); out = { res: 'buy' }; }
+    else if (act === 'try') {
+      if (!f.item) return null;
+      const c = costAt(f.item.base, f.item.lv); if (availKrw(a) < c) return { err: '강화 비용이 부족해요. 원화 예수금을 확인해 주세요.' };
+      a.krw -= c; out = enhance(f); a.krw += out.cost - c; // enhance() reports the same cost; keep cash exact
+      sound.play('forgeTry');
+    } else if (act === 'sell') { const v = sellItem(f); a.krw += v; sound.play('coin'); out = { res: 'sell', value: v }; }
+    setTick((x) => x + 1); save();
+    return out;
+  };
   const onLimit = (id, s, px, v, byPct) => { const r = placeLimit(acctRef.current, worldRef.current, id, s, px, v, byPct); setTick((x) => x + 1); save(); return r; };
   const onCancel = (oid) => { cancelOrder(acctRef.current, worldRef.current, oid); setTick((x) => x + 1); save(); };
   const onWatch = (id) => { toggleWatch(acctRef.current, id); setTick((x) => x + 1); save(); };
@@ -309,11 +333,12 @@ export default function App() {
   );
   // 미지의 국면: the year is always hidden (knowing it would give the chapter away)
   const viewSettings = w && w.mode === 'unknown' ? { ...settings, hideYear: true, lockYear: true } : settings;
-  const clock = <ClockBar world={w} settings={viewSettings} speed={speed} setSpeed={setSpeed} onSkip={onSkip} onSettings={() => setSheet('settings')} desk={desk} cur={cur} setCur={setCur} locked={isGuest()} />;
+  const clock = <ClockBar world={w} settings={viewSettings} speed={speed} setSpeed={setSpeed} onSkip={onSkip} onSettings={() => setSheet('settings')} onForge={() => setSheet('forge')} desk={desk} cur={cur} setCur={setCur} locked={isGuest()} />;
   const sheets = (
     <>
       {sheet === 'order' && sel && <Sheet title="주문" onClose={() => setSheet(null)}><OrderPanel world={w} acct={a} id={sel} side={side} setSide={setSide} cur={cur} onDone={onOrderDone} onLimit={onLimit} tick={tick} /></Sheet>}
       {sheet === 'exchange' && <Sheet title="환전" onClose={() => setSheet(null)}><ExchangePanel world={w} acct={a} onExchange={onExchange} /></Sheet>}
+      {sheet === 'forge' && <Sheet title="강화소" onClose={() => setSheet(null)}><ForgePanel acct={a} onForge={onForge} /></Sheet>}
       {sheet === 'settings' && <Sheet title="설정" onClose={() => setSheet(null)}><SettingsPanel settings={viewSettings} setSettings={(x) => { const { lockYear, ...rest } = x; setSettings(lockYear ? { ...rest, hideYear: settings.hideYear } : rest); }} world={w} onNew={onNew} /></Sheet>}
     </>
   );

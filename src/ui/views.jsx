@@ -2,6 +2,9 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import Chart from './Chart.jsx';
 import { IDX, BIDX, MARKETS } from '../engine/world.js';
 import { THEMES, THEME_ORDER } from '../engine/themes.js';
+import { repliesFor, liveCounts } from '../engine/community.js';
+import { MAX_LV, TIERS, valueAt, costAt, odds } from '../minigame/forge.js';
+import { sound } from './sound.js';
 import { quoteOrder, quoteLimit, valuation, FX_SPREAD, availKrw, availUsd, tickOf, limitBand } from '../engine/account.js';
 import { priceText, diffText, pct, tone, won, usd, moneyK, moneyU, compact, hhmm, mmdd, dateText, shortDate, num2 } from './format.js';
 
@@ -23,7 +26,7 @@ export { Icon };
 
 /* ---------------- Clock bar ---------------- */
 export const SPEEDS = [60, 600, 3600, 14400];
-export function ClockBar({ world, settings, speed, setSpeed, onSkip, onSettings, desk, cur, setCur, locked }) {
+export function ClockBar({ world, settings, speed, setSpeed, onSkip, onSettings, desk, cur, setCur, locked , onForge}) {
   const fx = world.fx();
   const st = (mk) => {
     const m = world.marketState(mk);
@@ -48,7 +51,10 @@ export function ClockBar({ world, settings, speed, setSpeed, onSkip, onSettings,
           <span className="cb-hm num">{hhmm(world.clock)}</span>
           <span className="cb-ny num">뉴욕 {hhmm(ny)}</span>
         </div>
-        <button className="iconbtn" type="button" onClick={onSettings} aria-label="설정">{Icon.gear}</button>
+        <span className="cb-btns">
+          {onForge && <button className="pill forge-btn" type="button" onClick={onForge}>강화소</button>}
+          <button className="iconbtn" type="button" onClick={onSettings} aria-label="설정">{Icon.gear}</button>
+        </span>
       </div>
       <div className="cb-row wrap">
         <span className={'pill' + (kr.on ? ' on' : '')}>{kr.text}</span>
@@ -223,6 +229,7 @@ export function MarketList({ world, mk, setMk, cur, onSelect, selected, tick, wa
 /* ---------------- Community ---------------- */
 export function CommunityFeed({ posts, world, settings, onSelect, small }) {
   const [f, setF] = useState('all');
+  const [open, setOpen] = useState(null);
   const items = posts.filter((p) => f === 'all' || p.mk === f).slice(-(small ? 25 : 120)).reverse();
   return (
     <section className="feed community" aria-label="커뮤니티">
@@ -231,14 +238,23 @@ export function CommunityFeed({ posts, world, settings, onSelect, small }) {
       </div>
       {items.length === 0 ? <p className="note">아직 글이 없어요. 장이 열리면 글이 올라와요.</p> : (
         <ul className="posts">
-          {items.map((p, i) => (
-            <li key={p.t + ':' + i}>
-              <button type="button" className="post" onClick={() => p.comp && onSelect && onSelect(p.comp)} disabled={!p.comp || !onSelect}>
-                <span className="p-title"><span className="tag">{p.tag}</span>{p.text}</span>
-                <span className="p-meta"><span>{p.nick}</span><span>{p.board}</span><span className="num">{hhmm(p.t)}</span><span>추천 {p.up}</span><span>댓글 {p.cm}</span></span>
-              </button>
-            </li>
-          ))}
+          {items.map((p, i) => {
+            const id = p.id || p.t + ':' + i, live = liveCounts(p, world.clock), isOpen = open === id;
+            return (
+              <li key={id} className={isOpen ? 'open' : ''}>
+                <button type="button" className="post" aria-expanded={isOpen} onClick={() => setOpen(isOpen ? null : id)}>
+                  <span className="p-title"><span className={'tag' + (p.tag === '대결' || p.tag === '포착' ? ' hot' : '')}>{p.tag}</span>{p.text}{live.best && <span className="badge hot">개념글</span>}</span>
+                  <span className="p-meta"><span>{p.nick}</span><span>{p.board}</span><span className="num">{hhmm(p.t)}</span><span>추천 <b className="num">{live.up}</b></span><span>댓글 <b className="num">{live.cm}</b></span></span>
+                </button>
+                {isOpen && (
+                  <div className="replies">
+                    {repliesFor(p).slice(0, Math.max(1, Math.min(6, live.cm))).map((c, j) => <p key={j}><b>{c.nick}</b> {c.text} <small className="num">추천 {Math.round(c.up * (live.cm ? 1 : 0))}</small></p>)}
+                    {p.comp && onSelect && <button type="button" className="pill" onClick={() => onSelect(p.comp)}>{(world.instrument(p.comp)?.name || '종목')} 보기 →</button>}
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       <p className="note">가상의 개미들이 남기는 글이에요. 정보가 아니라 분위기예요.</p>
@@ -556,6 +572,12 @@ export function SettingsPanel({ settings, setSettings, world, onNew }) {
         </button>
         {settings.lockYear ? <p className="note">미지의 국면 모드라 연도는 항상 숨겨져요.</p> : toggle('hideYear', '연도 숨기기', "몇 년도인지 모르게 '1년차'로 표시해요")}
         {toggle('pause', '주요 뉴스에 일시정지', '찌라시·단신은 멈추지 않아요')}
+        {toggle('sound', '효과음', '체결·속보·장 시작 종·강화 소리')}
+        {settings.sound !== false && (
+          <label className="setting vol"><span className="t"><b>효과음 크기</b></span>
+            <input type="range" min="0" max="1" step="0.05" value={settings.vol ?? 0.5} onChange={(e) => setSettings({ ...settings, vol: Number(e.target.value) })} onPointerUp={() => sound.play('fill')} aria-label="효과음 크기" />
+          </label>
+        )}
       </div>
       <div className="codebox"><span><small>세계 코드</small><b className="num">{world.seed}</b></span>
         <button type="button" onClick={() => { try { navigator.clipboard.writeText(world.seed).then(() => setCopied(true), () => setCopied(false)); } catch (e) { setCopied(false); } }}>{copied ? '복사됨' : '복사'}</button></div>
@@ -658,5 +680,80 @@ export function SyncScreen({ code, msg, progress, onCancel }) {
       {progress != null && <div className="bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(progress * 100)}><i style={{ width: Math.round(progress * 100) + '%' }} /></div>}
       <button type="button" className="ghost" onClick={onCancel}>취소</button>
     </main>
+  );
+}
+
+/* ---------------- 강화소 (mini-game) ---------------- */
+const FORGE_TEXT = { success: '강화 성공!', stay: '강화 실패 · 단계 유지', drop: '강화 실패 · 단계 하락', break: '주권이 파괴됐어요…', buy: '새 황금 주권을 샀어요', sell: '판매 완료' };
+export function ForgePanel({ acct, onForge }) {
+  const f = acct.forge || { item: null, stats: { spent: 0, earned: 0, best: 0, broke: 0, tries: 0 } };
+  const [shown, setShown] = useState(f.item ? { ...f.item } : null); // what the card shows (lags behind during the suspense)
+  const [busy, setBusy] = useState(false), [msg, setMsg] = useState(null), [fx, setFx] = useState('');
+  const [statSnap, setStatSnap] = useState(null); // frozen during the suspense so the result isn't spoiled
+  const timer = useRef(0);
+  useEffect(() => () => clearTimeout(timer.current), []);
+  useEffect(() => { if (!busy) setShown(f.item ? { ...f.item } : null); }, [busy, f.item, f.item && f.item.lv]); // eslint-disable-line react-hooks/exhaustive-deps
+  const it = shown, cash = Math.max(0, acct.krw - (acct.holdKrw || 0));
+  const act = (kind, base) => {
+    if (busy) return;
+    const before = { ...f.stats };
+    const r = onForge(kind, base);
+    if (!r) return;
+    if (r.err) { setMsg({ text: r.err, tone: 'cold' }); return; }
+    if (kind !== 'try') { setMsg({ text: FORGE_TEXT[r.res] + (r.value ? ' · ' + won(r.value) : ''), tone: '' }); setShown(acct.forge.item ? { ...acct.forge.item } : null); return; }
+    setStatSnap(before);
+    setBusy(true); setFx('charging'); setMsg({ text: '강화 중…', tone: '' });
+    timer.current = setTimeout(() => {
+      const after = acct.forge.item;
+      setBusy(false); setStatSnap(null); setFx(r.res); setShown(after ? { ...after } : null);
+      setMsg({ text: FORGE_TEXT[r.res] + (r.res === 'success' ? ' +' + after.lv : ''), tone: r.res === 'success' ? 'up' : r.res === 'stay' ? '' : 'cold' });
+      sound.play(r.res === 'success' ? (after.lv >= 10 ? 'forgeBig' : 'forgeOk') : r.res === 'break' ? 'forgeBreak' : r.res === 'drop' ? 'forgeDrop' : 'forgeFail');
+      timer.current = setTimeout(() => setFx(''), 900);
+    }, 650);
+  };
+  const o = it ? odds(it.lv) : null, cost = it ? costAt(it.base, it.lv) : 0, value = it ? valueAt(it.base, it.lv) : 0;
+  const pctx = (x) => (x * 100).toFixed(x < 0.1 && x > 0 ? 1 : 0) + '%';
+  const S = busy && statSnap ? statSnap : f.stats;
+  const net = S.earned + (it ? value : 0) - S.spent; // includes what the certificate in hand is worth
+  return (
+    <div className="forge">
+      <p className="note">황금 주권을 사서 한 단계씩 강화해요. 단계가 오를수록 비싸게 팔 수 있지만, 실패하면 그대로이거나 10단계부터는 떨어지고, 12단계부터는 부서질 수 있어요. 비용과 판매 대금은 원화 예수금으로 오가요.</p>
+      {it ? (
+        <>
+          <div className={'f-card ' + fx} aria-live="polite">
+            <span className="f-name">황금 주권</span>
+            <b className="f-lv num">+{it.lv}</b>
+            <span className="f-pips" aria-hidden="true">{Array.from({ length: MAX_LV }, (_, i) => <i key={i} className={i < it.lv ? 'on' : ''} />)}</span>
+            <span className="f-val">판매가 <b className="num">{won(value)}</b></span>
+          </div>
+          {it.lv < MAX_LV ? (
+            <div className="f-odds">
+              <span>성공 <b className="num up">{pctx(o.success)}</b></span>
+              <span>유지 <b className="num">{pctx(o.stay)}</b></span>
+              {o.drop > 0 && <span>하락 <b className="num cold">{pctx(o.drop)}</b></span>}
+              {o.break > 0 && <span>파괴 <b className="num cold">{pctx(o.break)}</b></span>}
+            </div>
+          ) : <p className="note">최고 단계예요. 이제 팔기만 하면 돼요.</p>}
+          {msg && <p className={'f-msg ' + (msg.tone || '')}>{msg.text}</p>}
+          <div className="row2">
+            <button type="button" className="ghost" disabled={busy} onClick={() => act('sell')}>판매 · {won(value)}</button>
+            <button type="button" className="cta" disabled={busy || it.lv >= MAX_LV || cash < cost} onClick={() => act('try')}>{busy ? '강화 중…' : '강화 · ' + won(cost)}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          {msg && <p className={'f-msg ' + (msg.tone || '')}>{msg.text}</p>}
+          <h3>황금 주권 사기</h3>
+          <div className="f-tiers">
+            {TIERS.map((b) => <button key={b} type="button" className="ghost" disabled={cash < b} onClick={() => act('buy', b)}>{won(b)}<small>+10이면 {compact(valueAt(b, 10))}원</small></button>)}
+          </div>
+        </>
+      )}
+      <div className="f-stats">
+        <span>원화 예수금 <b className="num">{won(cash)}</b></span>
+        <span>누적 손익 (들고 있는 주권 가치 포함) <b className={'num ' + tone(net)}>{(net >= 0 ? '+' : '') + won(net)}</b></span>
+        <span>최고 <b className="num">+{S.best}</b> · 시도 <b className="num">{S.tries}</b> · 파괴 <b className="num">{S.broke}</b></span>
+      </div>
+    </div>
   );
 }

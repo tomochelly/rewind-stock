@@ -103,7 +103,7 @@ const ISSUES = {
     ['공시', '글로벌 제약사에 기술수출 계약', 0.15, 0.35, ['bio']], ['정책', '정부 정책 수혜 기대감에 급등', 0.06, 0.2], ['공시', '최대주주 변경… 새 주인 맞는다', 0.1, 0.3], ['특징주', '해외 대형 수주 기대감에 강세', 0.06, 0.2],
     ['공시', '유상증자 결정… 주주배정 방식', -0.25, -0.1], ['공시', '최대주주 지분 블록딜 매각', -0.12, -0.05], ['실적', '분기 적자 전환… 어닝 쇼크', -0.15, -0.05], ['공시', '임상 3상 실패… 주요 지표 미충족', -0.35, -0.2, ['bio']],
     ['공시', '횡령·배임 혐의 발생 공시', -0.3, -0.12], ['공시', '전환사채(CB) 대규모 발행', -0.12, -0.04], ['특징주', '대표이사 구속 소식에 급락', -0.2, -0.08], ['공시', '주요 고객사와 공급계약 해지', -0.22, -0.08]],
-  us: [['실적', '어닝 서프라이즈 + 가이던스 상향', 0.08, 0.3], ['공시', 'FDA 신약 승인', 0.2, 0.9, ['bio']], ['M&A', '대형사가 인수 제안… 프리미엄 40%', 0.25, 0.6], ['공시', 'S&P 500 지수 편입 확정', 0.05, 0.12],
+  us: [['실적', '어닝 서프라이즈 + 가이던스 상향', 0.08, 0.3], ['공시', 'FDA 신약 승인', 0.2, 0.9, ['bio']], ['M&A', '대형사가 인수 제안… 프리미엄 40%', 0.25, 0.6], ['공시', '나스닭 100 지수 편입 확정', 0.05, 0.12],
     ['공시', '대규모 자사주 매입 발표', 0.03, 0.08], ['계약', '정부 대형 계약 수주', 0.1, 0.4], ['실적', '실적 미스 + 가이던스 하향', -0.3, -0.08], ['공시', 'FDA 승인 거절(CRL)', -0.7, -0.3, ['bio']],
     ['리포트', '공매도 리포트 "회계 부정" 의혹 제기', -0.4, -0.15], ['조사', 'SEC 조사 착수 보도', -0.25, -0.1], ['인사', 'CEO 돌연 사임', -0.15, -0.05], ['공시', '대규모 유상증자(공모) 발표', -0.35, -0.12]],
 };
@@ -434,6 +434,9 @@ export class World {
     // leveraged ETFs on either index
     for (const c of this.comp.values()) {
       if (!c.etf || c.mk !== mk) continue;
+      if (c.ipoT && c.ipoT > t) continue; // single-stock ETFs list later
+      const U0 = c.under ? P[c.under] : null, uPrev = c.under ? prevClose[c.under] : null;
+      if (c.under && (!U0 || !uPrev)) continue; // underlying not trading today
       const st = ms.etf[c.id] || (ms.etf[c.id] = { close: c.price, iRef: c.base === 'broad' ? ms.bidx.close : ms.idx.close });
       prevClose[c.id] = st.close;
       const Lx = c.base === 'broad' ? LB : LI;
@@ -441,12 +444,13 @@ export class World {
       let o = 0, h = 0, l = Infinity, cl = st.close;
       const lim = mk === 'kr' ? 0.3 * Math.abs(c.k) : null;
       for (let k = 0; k < N; k++) {
-        let L = st.close * (1 + c.k * (Math.exp(Lx[k]) / st.iRef - 1));
+        const ratio = U0 ? (Number.isNaN(U0[k]) ? 1 : U0[k] / uPrev) : Math.exp(Lx[k]) / st.iRef;
+        let L = st.close * (1 + c.k * (ratio - 1));
         L = Math.max(L, st.close * 0.03);
         if (lim) L = Math.min(st.close * (1 + lim), Math.max(st.close * (1 - lim), L));
         L = roundPx(mk, L, null, true);
         arrP[k] = L;
-        arrV[k] = (mk === 'kr' ? 3e6 : 2e7) / Math.max(1, N) * dayVolMult * (0.4 + r() * 1.2);
+        arrV[k] = (mk === 'kr' ? 3e6 : c.under ? 6e6 : 2e7) / Math.max(1, N) * dayVolMult * (0.4 + r() * 1.2);
         if (k >= regA && k < regB) { if (k === regA) o = L; h = Math.max(h, L); l = Math.min(l, L); cl = L; }
       }
       P[c.id] = arrP; V[c.id] = arrV; stat[c.id] = this.stats(arrP, arrV, regA, regB);
@@ -583,7 +587,7 @@ export class World {
   // US: 뉴스 갭상승 후 밀림·음전 / 재료 없는 펌프 앤 덤프 / 며칠짜리 숏스퀴즈와 블로오프 / 급등 뒤 유상증자. 마이크로캡은 몇백 %까지.
   spike(c, t) {
     if (!c.small) return null;
-    const p = c.mk === 'kr' ? 0.03 : c.micro ? 0.012 : 0.004;
+    const p = c.mk === 'kr' ? 0.03 : c.micro ? 0.07 : 0.015; // US: some runner almost every day, like the real tape
     let d = t;
     for (let off = 0; off < 8; off++) {
       if (off) d = prevTradingDay(c.mk, d);
@@ -754,7 +758,7 @@ export class World {
     const t = this.clock, out = [];
     for (const c of this.comp.values()) {
       if (c.mk !== mk) continue;
-      if (c.etf) { out.push(c); continue; }
+      if (c.etf) { if (!c.ipoT || (this.curDay(mk) ? c.id in this.curDay(mk).P : c.ipoT < this.ms[mk].next)) out.push(c); continue; }
       const day = this.curDay(mk);
       if (day ? (c.id in day.P && (!c.ipoT || this.priceOf(c.id) != null)) : (!c.ipoT || c.ipoT < this.ms[mk].next)) out.push(c);
     }

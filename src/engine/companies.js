@@ -172,6 +172,12 @@ export const ETFS = [
   { id: 'krm2x', mk: 'kr', name: '반도체 인버스 2X', sector: '인버스 ETF', k: -2, price: 4870, etf: true, desc: '국내 반도체 지수 하루 수익률의 -2배.' },
   { id: 'kbx2', mk: 'kr', name: '코스비 레버리지 2X', sector: '레버리지 ETF', k: 2, price: 14250, etf: true, base: 'broad', desc: '코스비 지수 하루 수익률의 2배.' },
   { id: 'kbi', mk: 'kr', name: '코스비 인버스', sector: '인버스 ETF', k: -1, price: 4920, etf: true, base: 'broad', desc: '코스비 지수 하루 수익률의 -1배.' },
+  // single-stock leveraged ETFs (US only, like the real ones, which appeared from 2022): track one stock's daily return x k
+  ...[['ltk2x', 'ltk', '인비디아', 2, 20, '2022-12-13'], ['eds2x', 'eds', '에디슨모터스', 2, 25, '2022-08-09'], ['edsm2x', 'eds', '에디슨모터스', -2, 25, '2022-07-14'],
+    ['pln2x', 'pln', '팔란티리', 2, 10, '2022-09-15'], ['orb2x', 'orb', '매크로디바이스', 2, 15, '2022-11-03'], ['nns2x', 'nns', '나노스트래티지', 2, 20, '2024-08-15'],
+    ['kpl2x', 'kpl', '나노크론', 2, 15, '2024-10-10'], ['ltkm1x', 'ltk', '인비디아', -1, 30, '2023-06-08']].map(([id, under, nm, k, price, ipo]) => ({
+    id, mk: 'us', name: nm + (k > 0 ? ' 불 ' : ' 베어 ') + Math.abs(k) + 'X', sector: '단일종목 ' + (k > 0 ? '레버리지' : '인버스'), k, price, etf: true, under, ipoT: T0(ipo),
+    desc: nm + ' 하루 수익률의 ' + k + '배를 따라가요. 매일 배율을 다시 맞춰서 오르내림이 반복되면 값이 깎이고, 하루에 ' + Math.round(100 / Math.abs(k)) + '% 넘게 반대로 가면 거의 0이 돼요.' })),
   { id: 'nd3x', mk: 'us', name: '나스닭 불 3X', sector: '레버리지 ETF', k: 3, price: 18.9, etf: true, base: 'broad', desc: '나스닭 지수 하루 수익률의 3배. 개미들의 최애 레버리지.' },
   { id: 'ndm3x', mk: 'us', name: '나스닭 베어 3X', sector: '인버스 ETF', k: -3, price: 41.5, etf: true, base: 'broad', desc: '나스닭 지수 하루 수익률의 -3배.' },
 ];
@@ -220,7 +226,7 @@ export function pastIpos(seed) {
       }
       if (used.has(name)) continue;
       used.add(name);
-      const micro = mk === 'us' && r() < 0.3;
+      const micro = mk === 'us' && r() < 0.5;
       const price = mk === 'kr' ? Math.round((6000 + r() * 34000) / 100) * 100 : micro ? Math.round((2 + r() * 6) * 100) / 100 : Math.round(10 + r() * 25);
       out.push({ id: 'p' + mk + b, mk, name, tkr, sector, theme, th, base: theme === 'semi' ? 'semi' : 'broad', beta: 1.1 + r() * 0.6, ai: th.ai || 0, mem: th.mem || 0, ivol: (micro ? 0.065 : 0.035) + r() * 0.03, price,
         ipoT: t, desc: sector + ' 신규 상장사 (가상 기업).', small: true, micro, risky: true });
