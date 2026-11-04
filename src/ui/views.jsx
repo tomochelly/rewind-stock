@@ -701,7 +701,8 @@ export function StartScreen({ saveInfo, onContinue, onStart, onCreateRoom, onJoi
     <main className="start">
       <div className="brand"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M11 19l-7-7 7-7" /><path d="M20 19l-7-7 7-7" /></svg>되감기<span className="chip">반도체</span></div>
       <h1>2019년 어느 날,<br />반도체 시장으로 돌아갑니다.</h1>
-      <p className="lede">언제 무슨 일이 터질지는 몰라요. 실제로 있었던 국면 위에서 가상의 반도체 회사 20여 곳과 레버리지 ETF를 국내·해외 장 구분 없이 사고팔아요. 지금 이후의 미래도 계속 이어져요.</p>
+      <p className="lede">언제 무슨 일이 터질지는 몰라요. 실제로 있었던 국면 위에서 가상 기업 200여 곳과 레버리지 ETF를 국내·해외 장 구분 없이 사고팔아요. 지금 이후의 미래도 계속 이어져요.</p>
+      <p className="note disclaimer">모든 기업·지수·시세는 가상이에요. 이름은 패러디이고 실제 기업과 관계없으며, 투자 조언이 아니에요. 게임 머니는 현금으로 바꿀 수 없어요.</p>
       {saveInfo && (
         <button type="button" className="continue" onClick={onContinue}>
           <span><small>이어하기{saveInfo.mode === 'unknown' ? ' · 미지의 국면' : ''}</small><b>{saveInfo.date}</b></span><span className="num">{saveInfo.total}</span>

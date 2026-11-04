@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+Disallow: /relay
+
+Sitemap: https://stock.gagether.wiki/sitemap.xml

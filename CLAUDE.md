@@ -40,6 +40,7 @@
 - `src/ui/views.jsx` 시장 목록은 순서가 저절로 안 바뀜: 기본 '내 순서'(⋮⋮ 드래그·화살표키, localStorage `rw-order`), 나머지 정렬은 누른 순간의 스냅샷(다시 누르면 갱신). 배지: 거래정지·정리매매·일시정지(LULD)·상한가·급등·신규
 - `src/ui/sound.js` Web Audio로 합성한 효과음(파일 없음, 첫 탭에서 오디오 잠금 해제): 매수·매도·지정가 체결·속보·장 시작 종·보유/관심 종목 급등·거래정지 경고·강화 결과. 설정에서 끄기·크기
 - `src/minigame/forge.js` 강화소(오리지널 강화 미니게임, 엔진 밖이라 `Math.random` 사용 가능): 황금 주권 구매(10만~1억) → +0~+20 강화. 성공률 85%→20%, 10단계부터 실패 시 절반은 하락, 12단계부터 파괴 2~15%. 판매가는 단계마다 ×1.5/1.6/1.75, 비용 = 판매가 × 성공률 × (배율-1) × 1.05라 모든 시도가 기대값 약 -5%(운으로 벌 수는 있지만 돈 복사기는 아님). 상태는 `acct.forge`, 돈은 원화 예수금으로. 특정 게임의 이름·확률표·화면은 쓰지 않음
+- 검색·공유: `public/`(robots.txt, sitemap.xml, og.png 1200×630, favicon.svg)는 빌드 때 `dist/`로 복사돼 Workers 정적 에셋으로 그대로 나감. `index.html`에 설명·OG·트위터·JSON-LD 메타와 `#root` 안 기본 소개 문구(React가 뜨면 교체). **도메인을 바꾸면** `index.html`의 canonical·og:url·og:image, `public/robots.txt`, `public/sitemap.xml`, `wrangler.jsonc` routes를 같이 고칠 것. 시작 화면에 가상 기업·투자 조언 아님 안내
 - `src/ui/` React 화면. 숫자 폰트는 Pretendard(tabular-nums, 자간 `--num-track` -0.02em), 본문은 IBM Plex Sans KR. 모바일(<1080px) 하단 탭 / 데스크톱 3열. 색은 전부 `styles.css`의 토큰(다크 기본, 라이트 전환)
 
 ## 확인 상태
