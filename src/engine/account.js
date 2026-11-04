@@ -188,8 +188,11 @@ export function valuation(acct, world) {
     if (inst.mk === 'kr') krStock += value; else usStock += value;
     rows.push({ id, inst, q: p.q, locked: p.locked || 0, avg: p.cost / p.q, price, value, pnl: value - p.cost, ret: value / p.cost - 1 });
   }
-  const totalKrw = acct.krw + krStock + (acct.usd + usStock) * fx;
-  return { fx, krStock, usStock, totalKrw, ret: totalKrw / acct.startKrw - 1, rows };
+  // loans in a room: money owed to me counts as an asset, money I owe as a debt (both incl. the agreed interest)
+  let loanNet = 0;
+  for (const l of acct.loans || []) { const left = Math.max(0, l.totalDue - ((l.role === 'borrow' ? l.paid : l.received) || 0)); loanNet += l.role === 'lend' ? left : -left; }
+  const totalKrw = acct.krw + krStock + (acct.usd + usStock) * fx + loanNet;
+  return { fx, krStock, usStock, loanNet, totalKrw, ret: totalKrw / acct.startKrw - 1, rows };
 }
 
 // 상장폐지: after the last 정리매매 day the shares are gone (worth nothing). Open orders on it are cancelled.

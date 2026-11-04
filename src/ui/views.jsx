@@ -5,6 +5,7 @@ import { THEMES, THEME_ORDER } from '../engine/themes.js';
 import { repliesFor, liveCounts } from '../engine/community.js';
 import { MAX_LV, TIERS, valueAt, costAt, odds } from '../minigame/forge.js';
 import { sound } from './sound.js';
+import { incomingOffers, schedule, remaining, overdue, nextDue, paidOf, RATES, TERMS, PLANS } from '../net/loans.js';
 import { quoteOrder, quoteLimit, valuation, FX_SPREAD, availKrw, availUsd, tickOf, limitBand } from '../engine/account.js';
 import { priceText, diffText, pct, tone, won, usd, moneyK, moneyU, compact, hhmm, mmdd, dateText, shortDate, num2 } from './format.js';
 
@@ -263,11 +264,72 @@ export function CommunityFeed({ posts, world, settings, onSelect, small }) {
 }
 
 /* ---------------- Room ---------------- */
-export function RoomPanel({ room, world, onLeave }) {
+const dLeft = (t, now) => Math.ceil((t - now) / 86400);
+function LoanForm({ to, onLoan, onDone }) {
+  const [amt, setAmt] = useState(''), [rate, setRate] = useState(5), [days, setDays] = useState(30), [plan, setPlan] = useState('weekly'), [err, setErr] = useState(null);
+  const n = Number(String(amt).replace(/[^0-9]/g, '')) || 0;
+  const total = Math.round(n * (1 + rate / 100)), parts = plan === 'weekly' ? Math.max(1, Math.ceil(days / 7)) : 1;
+  return (
+    <div className="loan-form">
+      <label className="qty"><span>빌려줄 돈</span><input inputMode="numeric" value={n ? n.toLocaleString('ko-KR') : ''} onChange={(e) => setAmt(e.target.value)} placeholder="0" aria-label="빌려줄 금액" /></label>
+      <div className="pcts">{[1e6, 1e7, 5e7, 1e8].map((v) => <button key={v} type="button" onClick={() => setAmt(String(v))}>{compact(v)}</button>)}</div>
+      <div className="lf-row"><span>이자 (총)</span><div className="seg">{RATES.map((r) => <button key={r} type="button" aria-pressed={rate === r} onClick={() => setRate(r)}>{r}%</button>)}</div></div>
+      <div className="lf-row"><span>기간</span><div className="seg">{TERMS.map((d) => <button key={d} type="button" aria-pressed={days === d} onClick={() => setDays(d)}>{d}일</button>)}</div></div>
+      <div className="lf-row"><span>갚는 방식</span><div className="seg">{Object.entries(PLANS).map(([k, l]) => <button key={k} type="button" aria-pressed={plan === k} onClick={() => setPlan(k)}>{l}</button>)}</div></div>
+      <p className="note">{n > 0 ? to.nick + '님은 ' + days + '일 동안 ' + won(total) + '을 ' + (parts > 1 ? parts + '번에 나눠 (회당 약 ' + won(Math.floor(total / parts)) + ')' : '만기에 한 번에') + ' 갚아요. 게임 속 날짜 기준이에요.' : '금액을 넣으면 상환 조건이 보여요.'}</p>
+      {err && <p className="note cold">{err}</p>}
+      <div className="row2">
+        <button type="button" className="ghost" onClick={onDone}>취소</button>
+        <button type="button" className="cta" disabled={!n} onClick={() => { const r = onLoan('offer', { to, amt: n, rate, days, plan }); if (r && r.err) setErr(r.err); else onDone(); }}>제안 보내기</button>
+      </div>
+    </div>
+  );
+}
+function LoanCard({ l, world, onLoan }) {
+  const [open, setOpen] = useState(false), [amt, setAmt] = useState('');
+  const now = world.clock, left = remaining(l), paid = paidOf(l), od = overdue(l, now), nd = nextDue(l, now), sch = schedule(l);
+  const borrow = l.role === 'borrow', done = left <= 0;
+  const n = Number(String(amt).replace(/[^0-9]/g, '')) || 0;
+  let acc = 0;
+  return (
+    <li className={'loan' + (od > 0 ? ' late' : '') + (done ? ' done' : '')}>
+      <div className="ln-h">
+        <span><small>{borrow ? l.peerNick + '님에게 빌린 돈' : l.peerNick + '님에게 빌려준 돈'}</small>
+          <b className="num">{done ? '다 갚았어요' : (borrow ? '남은 빚 ' : '받을 돈 ') + won(left)}</b></span>
+        {od > 0 ? <span className="badge cold">연체 {won(od)}</span> : !done && <span className="badge muted">D-{Math.max(0, dLeft(l.startT + l.days * 86400, now))}</span>}
+      </div>
+      <div className="ln-bar" aria-label={'상환 ' + Math.round((paid / l.totalDue) * 100) + '%'}><i style={{ width: Math.min(100, (paid / l.totalDue) * 100) + '%' }} /></div>
+      <p className="ln-sub">원금 {won(l.amt)} · 이자 {l.rate}% · 총 {won(l.totalDue)} · {PLANS[l.plan]} · {borrow ? '갚은 돈 ' : '받은 돈 '}{won(paid)}</p>
+      {!done && nd && <p className={'ln-next' + (nd.late ? ' cold' : '')}>{nd.late ? '밀린 상환' : '다음 상환'} · {shortDate(nd.t, world.startT, true)} ({nd.late ? '지남' : 'D-' + Math.max(0, dLeft(nd.t, now))}) · <b className="num">{won(nd.amt)}</b></p>}
+      <button type="button" className="linkish" onClick={() => setOpen(!open)} aria-expanded={open}>{open ? '상환 일정 접기' : '상환 일정 보기 (' + sch.length + '회)'}</button>
+      {open && (
+        <table className="ln-sch"><thead><tr><th>회차</th><th>날짜</th><th>금액</th><th>상태</th></tr></thead><tbody>
+          {sch.map((x, i) => { acc += x.amt; const st = paid >= acc ? '완료' : x.t < now - 86400 ? '연체' : x.t <= now ? '오늘' : '예정'; return <tr key={i} className={st === '연체' ? 'cold' : st === '완료' ? 'muted' : ''}><td className="num">{i + 1}</td><td>{shortDate(x.t, world.startT, true)}</td><td className="num">{won(x.amt)}</td><td>{st}</td></tr>; })}
+        </tbody></table>
+      )}
+      {!done && (borrow ? (
+        <div className="ln-act">
+          <input inputMode="numeric" value={n ? n.toLocaleString('ko-KR') : ''} onChange={(e) => setAmt(e.target.value)} placeholder="갚을 금액" aria-label="갚을 금액" />
+          {nd && <button type="button" className="ghost" onClick={() => onLoan('repay', { id: l.id, amt: nd.amt })}>이번 회차</button>}
+          <button type="button" className="ghost" onClick={() => onLoan('repay', { id: l.id, amt: left })}>전액</button>
+          <button type="button" className="cta" disabled={!n} onClick={() => { onLoan('repay', { id: l.id, amt: n }); setAmt(''); }}>갚기</button>
+        </div>
+      ) : od > 0 && <button type="button" className="ghost" onClick={() => onLoan('nudge', { id: l.id })}>독촉하기</button>)}
+    </li>
+  );
+}
+
+export function RoomPanel({ room, world, acct, onLoan, onLeave }) {
   const [copied, setCopied] = useState(false);
+  const [lendTo, setLendTo] = useState(null), [req, setReq] = useState('');
   if (!room) return null;
   const list = room.peers.filter((p) => p.presence && p.presence.v === 2).sort((a, b) => (b.presence.ret || 0) - (a.presence.ret || 0));
   const hostId = room.hostId;
+  const me = { pid: room.pid, nick: room.nick };
+  const inbox = acct && onLoan ? incomingOffers(acct, me, room.peers) : [];
+  const loans = acct && acct.loans ? [...acct.loans].sort((a, b) => (remaining(a) > 0 ? 0 : 1) - (remaining(b) > 0 ? 0 : 1) || b.startT - a.startT) : [];
+  const owe = loans.filter((l) => l.role === 'borrow').reduce((s, l) => s + remaining(l), 0), due = loans.filter((l) => l.role === 'lend').reduce((s, l) => s + remaining(l), 0);
+  const reqN = Number(String(req).replace(/[^0-9]/g, '')) || 0;
   return (
     <section className="room" aria-label="대결 방">
       <div className="room-h">
@@ -277,17 +339,50 @@ export function RoomPanel({ room, world, onLeave }) {
       <p className="note">{room.connected ? (room.role === 'host' ? '내가 방장이에요. 시간과 속도는 방장이 정해요.' : '방장의 시계에 맞춰 같이 흘러가요.') : '연결이 잠깐 끊겼어요. 다시 연결하는 중이에요.'}</p>
       <ol className="ranks">
         {list.map((p, i) => {
-          const pr = p.presence, trs = pr.trades || [], last = trs[trs.length - 1];
+          const pr = p.presence, trs = pr.trades || [], last = trs[trs.length - 1], ln = pr.ln || {};
+          const canLend = !p.isMe && pr.pid && onLoan;
           return (
             <li key={p.id} className={p.isMe ? 'me' : ''}>
-              <span className="rk num">{i + 1}</span>
-              <span className="rn"><b>{pr.nick || '익명'}{p.isMe ? ' (나)' : ''}{p.id === hostId ? ' · 방장' : ''}</b>
-                <small>{last ? (last[1] === 'b' ? '매수 ' : '매도 ') + last[2] + ' ' + last[3] + '주' : (pr.top || []).map((t) => t[0]).join(', ') || '현금 보유 중'}</small></span>
-              <span className="rr"><b className={'num ' + tone(pr.ret || 0)}>{pct(pr.ret || 0)}</b><small className="num">{compact(pr.total || 0)}원</small></span>
+              <div className="rk-row">
+                <span className="rk num">{i + 1}</span>
+                <span className="rn"><b>{pr.nick || '익명'}{p.isMe ? ' (나)' : ''}{p.id === hostId ? ' · 방장' : ''}{ln.od > 0 && <span className="badge cold">연체</span>}</b>
+                  <small>{last ? (last[1] === 'b' ? '매수 ' : '매도 ') + last[2] + ' ' + last[3] + '주' : (pr.top || []).map((t) => t[0]).join(', ') || '현금 보유 중'}{ln.d > 0 ? ' · 빚 ' + compact(ln.d) + '원' : ''}{ln.q ? ' · 대출 요청 ' + compact(ln.q) + '원' : ''}</small></span>
+                <span className="rr"><b className={'num ' + tone(pr.ret || 0)}>{pct(pr.ret || 0)}</b><small className="num">{compact(pr.total || 0)}원</small></span>
+              </div>
+              {canLend && lendTo !== pr.pid && <button type="button" className="pill lend-btn" onClick={() => setLendTo(pr.pid)}>돈 빌려주기</button>}
+              {canLend && lendTo === pr.pid && <LoanForm to={{ pid: pr.pid, nick: pr.nick || '익명' }} onLoan={onLoan} onDone={() => setLendTo(null)} />}
             </li>
           );
         })}
       </ol>
+      {onLoan && acct && (
+        <div className="loans">
+          <h3>대출</h3>
+          {inbox.map((o) => (
+            <div key={o.id} className="loan offer">
+              <p><b>{o.fromNick}</b>님이 <b className="num">{won(o.amt)}</b>을 빌려주겠대요.</p>
+              <p className="ln-sub">{o.days}일 안에 총 {won(o.totalDue)} (이자 {Math.round((o.totalDue / o.amt - 1) * 100)}%) · {PLANS[o.plan]}{o.plan === 'weekly' ? ' · ' + Math.max(1, Math.ceil(o.days / 7)) + '회' : ''}</p>
+              <div className="row2"><button type="button" className="ghost" onClick={() => onLoan('decline', o)}>거절</button><button type="button" className="cta" onClick={() => onLoan('accept', o)}>빌리기</button></div>
+            </div>
+          ))}
+          {(acct.loanAccepts || []).map((x) => <p key={x.id} className="note">{x.fromNick}님이 {won(x.amt)}을 보내는 중이에요… (상대가 접속해 있어야 해요)</p>)}
+          {(acct.loanOffers || []).map((o) => <p key={o.id} className="note">{o.toNick}님에게 {won(o.amt)} 제안함 · 수락 기다리는 중 <button type="button" className="linkish" onClick={() => onLoan('cancel', o)}>취소</button></p>)}
+          {(owe > 0 || due > 0) && <p className="ln-sum">남은 빚 <b className="num cold">{won(owe)}</b> · 받을 돈 <b className="num up">{won(due)}</b></p>}
+          {loans.length > 0 && <ul className="loan-list">{loans.slice(0, 12).map((l) => <LoanCard key={l.id} l={l} world={world} onLoan={onLoan} />)}</ul>}
+          {loans.some((l) => l.role === 'borrow') && (
+            <button type="button" className="setting" aria-pressed={acct.loanAuto !== false} onClick={() => onLoan('auto')}>
+              <span className="t"><b>자동 상환</b><small>상환일이 되면 원화 예수금에서 알아서 갚아요</small></span><span className="switch" aria-hidden="true" />
+            </button>
+          )}
+          <div className="ln-req">
+            {acct.loanReq ? <p className="note">방에 대출 요청 중 · {won(acct.loanReq)} <button type="button" className="linkish" onClick={() => onLoan('request', { amt: 0 })}>요청 내리기</button></p> : (
+              <><input inputMode="numeric" value={reqN ? reqN.toLocaleString('ko-KR') : ''} onChange={(e) => setReq(e.target.value)} placeholder="필요한 돈" aria-label="대출 요청 금액" />
+                <button type="button" className="ghost" disabled={!reqN} onClick={() => { onLoan('request', { amt: reqN }); setReq(''); }}>대출 요청 올리기</button></>
+            )}
+          </div>
+          <p className="note">빌려준 돈과 빌린 돈은 이자까지 포함해서 총자산·수익률에 반영돼요. 돈은 원화 예수금으로 오가고, 상대가 방에 접속해 있을 때 주고받아져요.</p>
+        </div>
+      )}
       <button type="button" className="ghost" onClick={onLeave}>방 나가기 (혼자 계속하기)</button>
     </section>
   );

@@ -4,6 +4,7 @@ import { dateOf, DAY } from './engine/calendar.js';
 import { newAccount, normalizeAccount, execute, exchange, valuation, placeLimit, cancelOrder, processOrders, toggleWatch, sweepDelisted, availKrw } from './engine/account.js';
 import { newForge, buyItem, enhance, sellItem, costAt } from './minigame/forge.js';
 import { sound } from './ui/sound.js';
+import { normalizeLoans, syncLoans, autoRepay, makeOffer, cancelOffer, acceptOffer, declineOffer, repay, nudge, setRequest } from './net/loans.js';
 import { newCommunity, communityTick } from './engine/community.js';
 import { openRoom, newRoomCode } from './net/room.js';
 import { hostOf, myPresence, targetClock } from './net/match.js';
@@ -26,6 +27,8 @@ function useMedia(q) {
   return m;
 }
 
+// one stable id per browser, so loans survive reconnects (the relay gives every connection a new peer id)
+const playerId = () => { let v = null; try { v = localStorage.getItem('rw-pid'); if (!v) { v = Math.random().toString(36).slice(2, 12); localStorage.setItem('rw-pid', v); } } catch (e) { v = v || Math.random().toString(36).slice(2, 12); } return v; };
 const DEFAULT_SETTINGS = { theme: 'dark', cur: 'USD', hideYear: true, pause: true, sound: true, vol: 0.5 };
 const NO_ROOM_MSG = '실시간 서버에 연결할 수 없어요. `npm run dev`나 `npm start`로 띄운 주소에서 열어 주세요.';
 
@@ -116,7 +119,7 @@ export default function App() {
 
   /* ---------- rooms ---------- */
   const attachRoom = (t, code, role, nick, pub = true) => {
-    const rm = { t, code, role, nick, pub, joinedAt: Date.now(), peers: [], hostId: null, connected: true, noHostSince: null };
+    const rm = { t, code, role, nick, pub, pid: playerId(), joinedAt: Date.now(), peers: [], hostId: null, connected: true, noHostSince: null };
     rm.unsub = t.onPeers((peers) => { rm.peers = peers; });
     roomRef.current = rm;
     return rm;
@@ -190,6 +193,15 @@ export default function App() {
       const rm = roomRef.current, w = worldRef.current, a = acctRef.current;
       if (!rm || !w) return;
       rm.connected = rm.t.connected();
+      // loans: react to peers (fund / credit / repayments), then pay what's due
+      normalizeLoans(a);
+      const ev = [...syncLoans(a, w, { pid: rm.pid, nick: rm.nick }, rm.peers), ...autoRepay(a, w)];
+      if (ev.length) {
+        const e = ev[ev.length - 1];
+        setFillNote({ text: e.text, until: performance.now() + 7000 });
+        sound.play(e.kind === 'warn' ? 'warn' : 'coin');
+        save(); setTick((x) => x + 1);
+      }
       rm.t.setPresence(myPresence(w, a, rm, rm.role === 'host' ? speedRef.current : 0));
     }, 300);
     return () => clearInterval(id);
@@ -316,6 +328,21 @@ export default function App() {
   const onCancel = (oid) => { cancelOrder(acctRef.current, worldRef.current, oid); setTick((x) => x + 1); save(); };
   const onWatch = (id) => { toggleWatch(acctRef.current, id); setTick((x) => x + 1); save(); };
   const onExchange = (dir, amt) => { exchange(acctRef.current, worldRef.current, dir, amt); setTick((x) => x + 1); save(); };
+  const onLoan = (act, x) => {
+    const a = acctRef.current, rm = roomRef.current, w = worldRef.current; if (!a || !rm) return null;
+    normalizeLoans(a);
+    let r = { ok: true };
+    if (act === 'offer') r = makeOffer(a, { pid: rm.pid, nick: rm.nick }, x.to, x.amt, x.rate, x.days, x.plan);
+    else if (act === 'cancel') cancelOffer(a, x.id);
+    else if (act === 'accept') acceptOffer(a, x);
+    else if (act === 'decline') declineOffer(a, x.id);
+    else if (act === 'repay') { const paid = repay(a, x.id, x.amt); r = paid > 0 ? { ok: true, paid } : { err: '갚을 원화 예수금이 없어요.' }; if (paid > 0) sound.play('coin'); }
+    else if (act === 'nudge') nudge(a, x.id, w.clock);
+    else if (act === 'request') setRequest(a, x.amt);
+    else if (act === 'auto') a.loanAuto = !a.loanAuto;
+    setTick((v) => v + 1); save();
+    return r;
+  };
   const onLeaveRoom = () => { save(); leaveRoom(); setTab('home'); setRightTab('news'); setToast({ text: '방에서 나왔어요. 같은 세계를 혼자 이어서 해요.' }); };
   const select = (id) => { setSel(id); if (!desk) setTab('stock'); const inst = worldRef.current.instrument(id); if (inst && !inst.index && mk !== 'watch') setMk(inst.mk); };
 
@@ -324,7 +351,7 @@ export default function App() {
   const w = worldRef.current, a = acctRef.current, rm = roomRef.current;
   const news = w.newsLog, posts = commRef.current.posts;
   const cur = settings.cur;
-  const roomView = rm && { code: rm.code, role: rm.role, peers: rm.peers, hostId: rm.hostId, connected: rm.connected !== false };
+  const roomView = rm && { code: rm.code, role: rm.role, peers: rm.peers, hostId: rm.hostId, connected: rm.connected !== false, pid: rm.pid, nick: rm.nick };
   const toastEl = toast && (
     <div className="toast" role="status">
       <span><b>{toast.major ? (isGuest() ? '주요 뉴스' : '주요 뉴스로 멈췄어요') : '알림'}</b>{toast.text}</span>
@@ -364,7 +391,7 @@ export default function App() {
               <div className="seg big" role="tablist" aria-label="정보">
                 {tabs.map(([k, l]) => <button key={k} type="button" role="tab" aria-selected={rightTab === k} onClick={() => setRightTab(k)}>{l}</button>)}
               </div>
-              {rightTab === 'room' && rm && <RoomPanel room={roomView} world={w} onLeave={onLeaveRoom} />}
+              {rightTab === 'room' && rm && <RoomPanel room={roomView} world={w} acct={a} onLoan={onLoan} onLeave={onLeaveRoom} />}
               {rightTab === 'news' && <NewsFeed world={w} news={news} settings={viewSettings} compact />}
               {rightTab === 'community' && <CommunityFeed posts={posts} world={w} settings={viewSettings} onSelect={select} small />}
             </div>
@@ -389,7 +416,7 @@ export default function App() {
         {tab === 'account' && <AccountView world={w} acct={a} cur={cur} setCur={setCur} onSelect={select} onExchange={() => setSheet('exchange')} onCancel={onCancel} tick={tick} theme={settings.theme} />}
         {tab === 'news' && <NewsFeed world={w} news={news} settings={viewSettings} />}
         {tab === 'community' && <CommunityFeed posts={posts} world={w} settings={viewSettings} onSelect={select} />}
-        {tab === 'room' && rm && <RoomPanel room={roomView} world={w} onLeave={onLeaveRoom} />}
+        {tab === 'room' && rm && <RoomPanel room={roomView} world={w} acct={a} onLoan={onLoan} onLeave={onLeaveRoom} />}
         {warn}
       </main>
       {tab !== 'stock' && (

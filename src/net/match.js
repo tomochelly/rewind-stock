@@ -1,6 +1,7 @@
 // Room rules on top of the transport: who is host, what each player shares, where guests' clocks should be.
 // Everything a peer sends is untrusted display data (friends' rooms, not a ranked ladder).
 import { valuation } from '../engine/account.js';
+import { presenceLoans } from './loans.js';
 
 export const PRESENCE_V = 2;
 
@@ -18,7 +19,7 @@ export function myPresence(world, acct, info, speed) {
   const top = v.rows.sort((a, b) => b.value * (b.inst.mk === 'us' ? v.fx : 1) - a.value * (a.inst.mk === 'us' ? v.fx : 1)).slice(0, 3).map((r) => [r.inst.name.slice(0, 16), r.q]);
   const trades = acct.trades.slice(-3).map((t) => [t.t, t.side === 'buy' ? 'b' : 's', (world.instrument(t.id)?.name || '').slice(0, 16), t.qty]);
   return {
-    v: PRESENCE_V, nick: info.nick.slice(0, 16), role: info.role, joinedAt: info.joinedAt, pub: info.pub !== false,
+    v: PRESENCE_V, nick: info.nick.slice(0, 16), role: info.role, joinedAt: info.joinedAt, pub: info.pub !== false, pid: info.pid, ln: presenceLoans(acct, world.clock),
     seed: world.seed, ext: world.ext, mode: world.mode, startT: world.startT, cash: acct.startKrw,
     clock: world.clock, speed, total: Math.round(v.totalKrw), ret: Math.round(v.ret * 10000) / 10000, top, trades,
   };
